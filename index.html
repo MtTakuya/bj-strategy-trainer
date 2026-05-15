@@ -658,9 +658,19 @@ function renderHome() {
       </div>
 
       <div class="section">
+        <div class="sec-lbl">実戦</div>
+        <div class="btn-stack">
+          <button class="btn btn-primary" onclick="renderGameMode()"
+            style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;font-size:17px">
+            🎰 実戦モード
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="sec-lbl">練習を始める</div>
         <div class="btn-stack">
-          <button class="btn btn-primary" onclick="startQuiz('all')">🃏 10問テスト開始</button>
+          <button class="btn btn-secondary" onclick="startQuiz('all')">🃏 10問テスト開始</button>
           <button class="btn btn-secondary" onclick="startQuiz('weak')" ${weak===0?'style="opacity:.42"':''}>
             🎯 苦手問題だけ練習
             ${weak>0?`<span class="chip chip-hard" style="font-size:10px;margin-left:4px">${weak}問</span>`:''}
@@ -1067,6 +1077,527 @@ function renderStrategyTable() {
       </div>
     </div>
   `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GAME MODE — 実戦モード
+//  6デッキシュー × 並列ベーシックストラテジーシミュレーション
+// ═══════════════════════════════════════════════════════════════
+
+const GM_DECKS     = 6;
+const GM_RESHUFFLE = Math.floor(GM_DECKS * 52 * 0.75); // ~234枚で再シャッフル
+
+// ── Shoe ────────────────────────────────────────────────────────
+function gmMakeShoe() {
+  const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+  const suits  = ['♠','♥','♦','♣'];
+  const shoe   = [];
+  for (let d = 0; d < GM_DECKS; d++)
+    for (const s of suits)
+      for (const r of ranks)
+        shoe.push({ rank: r, suit: s });
+  return shoe;
+}
+function gmShuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ── Card Math ────────────────────────────────────────────────────
+function gmRankVal(r) {
+  if (['J','Q','K'].includes(r)) return 10;
+  if (r === 'A') return 11;
+  return parseInt(r);
+}
+function gmTotal(hand) {
+  let t = 0, aces = 0;
+  for (const c of hand) {
+    if (c.rank === 'A') { aces++; t += 11; } else t += gmRankVal(c.rank);
+  }
+  while (t > 21 && aces > 0) { t -= 10; aces--; }
+  return t;
+}
+function gmIsSoft(hand) {
+  let t = 0, aces = 0;
+  for (const c of hand) {
+    if (c.rank === 'A') { aces++; t += 11; } else t += gmRankVal(c.rank);
+  }
+  while (t > 21 && aces > 0) { t -= 10; aces--; }
+  return aces > 0;
+}
+function gmIsBJ(hand)   { return hand.length === 2 && gmTotal(hand) === 21; }
+function gmIsPair(hand) {
+  return hand.length === 2 && gmRankVal(hand[0].rank) === gmRankVal(hand[1].rank);
+}
+
+// ── Strategy Lookup ──────────────────────────────────────────────
+const GM_STRAT = {};
+(function buildGMStrat() {
+  const add = (table, cat) => {
+    for (const row of table)
+      for (let i = 0; i < DEALER_CARDS.length; i++)
+        GM_STRAT[`${cat}|${row.hand}|${DEALER_CARDS[i]}`] = ACTION_MAP[row.a[i]];
+  };
+  add(HARD_TABLE, 'Hard');
+  add(SOFT_TABLE, 'Soft');
+  add(PAIR_TABLE, 'Pair');
+})();
+
+function gmClassify(hand) {
+  const tot  = gmTotal(hand);
+  const soft = gmIsSoft(hand);
+  if (hand.length === 2) {
+    const v1 = gmRankVal(hand[0].rank), v2 = gmRankVal(hand[1].rank);
+    if (v1 === v2) {
+      if (hand[0].rank === 'A') return { cat:'Pair', key:'A+A' };
+      if (v1 === 10)             return { cat:'Pair', key:'10+10' };
+      return { cat:'Pair', key:`${hand[0].rank}+${hand[0].rank}` };
+    }
+    if (hand[0].rank === 'A' || hand[1].rank === 'A') {
+      const other = hand[0].rank === 'A' ? hand[1] : hand[0];
+      const ov = Math.min(9, gmRankVal(other.rank));
+      return { cat:'Soft', key:`A+${ov}` };
+    }
+  }
+  if (soft) {
+    const nonAce = Math.min(9, Math.max(2, tot - 11));
+    return { cat:'Soft', key:`A+${nonAce}` };
+  }
+  if (tot >= 17) return { cat:'Hard', key:'17〜' };
+  if (tot <= 8)  return { cat:'Hard', key:'8以下' };
+  return { cat:'Hard', key: String(tot) };
+}
+function gmDKey(rank) { return ['J','Q','K','10'].includes(rank) ? '10' : rank; }
+
+function gmCorrectAction(hand, upRank, canSplit = true, canDouble = true) {
+  const { cat, key } = gmClassify(hand);
+  const dk = gmDKey(upRank);
+  let act = GM_STRAT[`${cat}|${key}|${dk}`] || 'Stand';
+  if (act === 'Split' && !canSplit) {
+    const tot = gmTotal(hand);
+    const hk  = tot >= 17 ? '17〜' : tot <= 8 ? '8以下' : String(tot);
+    act = GM_STRAT[`Hard|${hk}|${dk}`] || 'Stand';
+  }
+  if (act === 'Double' && !canDouble) act = 'Hit';
+  return act;
+}
+
+// ── Parallel Perfect Simulation ──────────────────────────────────
+// 同じ初期4枚から正解手を自動プレイ → 結果を比較
+function gmSimPerfect(shoeRef, snapIdx, playerCards, dealerCards) {
+  const shoe   = shoeRef.slice(); // ローカルコピー（本体のシューを汚さない）
+  let idx      = snapIdx;
+  const upRank = dealerCards[0].rank;
+
+  if (gmIsBJ(playerCards)) return gmIsBJ(dealerCards) ? 'push' : 'win';
+
+  // スプリット判定
+  const { cat, key } = gmClassify(playerCards);
+  const firstAct = GM_STRAT[`${cat}|${key}|${gmDKey(upRank)}`] || 'Stand';
+  if (firstAct === 'Split' && playerCards.length === 2) {
+    const subs = [[playerCards[0], shoe[idx++]], [playerCards[1], shoe[idx++]]];
+    const res  = subs.map(sub => {
+      const r = gmPlayHandPerfect(shoe, idx, sub, dealerCards, upRank);
+      idx = r.idx;
+      return r.result;
+    });
+    const W = res.filter(r => r==='win').length;
+    const L = res.filter(r => r==='loss').length;
+    return W > L ? 'win' : L > W ? 'loss' : 'push';
+  }
+  return gmPlayHandPerfect(shoe, idx, playerCards.slice(), dealerCards.slice(), upRank).result;
+}
+
+function gmPlayHandPerfect(shoe, startIdx, pHand, dHand, upRank) {
+  let idx  = startIdx;
+  let hand = pHand.slice();
+  while (true) {
+    const canD  = hand.length === 2;
+    const canSp = hand.length === 2 && gmIsPair(hand);
+    let act = gmCorrectAction(hand, upRank, canSp, canD);
+    if (act === 'Split') act = 'Hit'; // スプリットは上位で処理済み
+    if (act === 'Hit')    { hand = [...hand, shoe[idx++]]; if (gmTotal(hand) > 21) return { result:'loss', idx }; }
+    else if (act === 'Double') { hand = [...hand, shoe[idx++]]; break; }
+    else break;
+    if (gmTotal(hand) >= 21) break;
+  }
+  let dealer = dHand.slice();
+  while (gmTotal(dealer) < 17 || (gmIsSoft(dealer) && gmTotal(dealer) === 17))
+    dealer = [...dealer, shoe[idx++]];
+  const pt = gmTotal(hand), dt = gmTotal(dealer);
+  if (dt > 21) return { result:'win',  idx };
+  if (pt > dt) return { result:'win',  idx };
+  if (pt < dt) return { result:'loss', idx };
+  return { result:'push', idx };
+}
+
+// ── Game State ───────────────────────────────────────────────────
+let gm = null;
+function gmInit(target) {
+  gm = {
+    shoe: gmShuffle(gmMakeShoe()),
+    idx:  0, target,
+    handsPlayed:   0,
+    playerHands:   [], handBets: [], curHandIdx: 0, doubled: false,
+    dealerHand:    [],
+    snapIdx: 0, snapPlayer: [], snapDealer: [],
+    handDecStart:  0,
+    actualResults: [], perfResults: [], decisions: [],
+  };
+}
+function gmDraw() {
+  if (gm.idx >= GM_RESHUFFLE) {
+    gm.shoe = gmShuffle(gmMakeShoe()); gm.idx = 0;
+    showToast('🔀 シャッフルしました');
+  }
+  return gm.shoe[gm.idx++];
+}
+function gmDeal() {
+  const p1 = gmDraw(), d1 = gmDraw(), p2 = gmDraw(), d2 = gmDraw();
+  gm.snapIdx    = gm.idx;
+  gm.snapPlayer = [p1, p2];
+  gm.snapDealer = [d1, d2];
+  gm.handDecStart   = gm.decisions.length;
+  gm.playerHands    = [[p1, p2]];
+  gm.handBets       = [1];
+  gm.curHandIdx     = 0;
+  gm.doubled        = false;
+  gm.dealerHand     = [d1, d2];
+}
+
+// ── Card HTML (game mode) ────────────────────────────────────────
+function gmCardHTML(card, faceDown) {
+  if (faceDown) return `
+    <div style="width:68px;height:96px;background:#162318;border:2px solid var(--border);
+      border-radius:10px;display:flex;align-items:center;justify-content:center;
+      box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:26px;color:var(--muted)">🂠</div>`;
+  const red = ['♥','♦'].includes(card.suit);
+  const col = red ? '#dc2626' : '#1a1a1a';
+  return `<div class="playing-card" style="width:68px;height:96px;color:${col}"
+    data-v="${card.rank}" data-s="${card.suit}">
+    <div class="card-num" style="font-size:${card.rank==='10'?'24px':'30px'};color:${col}">${card.rank}</div>
+    <div class="card-suit" style="font-size:14px;color:${col}">${card.suit}</div>
+  </div>`;
+}
+
+// ── Render: Game Home ────────────────────────────────────────────
+function renderGameMode() {
+  state.screen = 'game-home';
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <span style="font-size:16px;font-weight:800;color:var(--gold)">実戦モード</span>
+        <div style="width:80px"></div>
+      </div>
+      <div style="text-align:center;padding:20px 0 12px">
+        <div style="font-size:44px;margin-bottom:10px">🎰</div>
+        <div style="font-size:19px;font-weight:800;margin-bottom:8px">実戦ブラックジャック</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.85">
+          実際にプレイして勝率を記録。<br>
+          終了後に <strong style="color:var(--gold)">あなたの勝率</strong> と<br>
+          <strong style="color:#4ade80">ベーシックストラテジー通りの勝率</strong> を比較します。
+        </div>
+      </div>
+      <div class="info-card" style="margin-bottom:16px">
+        <div class="info-ttl">ルール</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.9">
+          🃏 ${GM_DECKS}デッキシュー（${GM_DECKS*52}枚）<br>
+          🔀 75%消費時にリシャッフル<br>
+          📏 ディーラー：ソフト17でヒット（H17）<br>
+          💰 ダブルダウン・スプリット対応<br>
+          💵 ブラックジャック = 勝ち扱い（3:2相当）
+        </div>
+      </div>
+      <div class="sec-lbl">ハンド数を選択</div>
+      <div class="btn-stack">
+        <button class="btn btn-primary"   onclick="startGameMode(10)">10ハンド</button>
+        <button class="btn btn-secondary" onclick="startGameMode(20)">20ハンド</button>
+        <button class="btn btn-secondary" onclick="startGameMode(50)">50ハンド</button>
+      </div>
+      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
+}
+
+function startGameMode(target) {
+  gmInit(target);
+  gmDeal();
+  renderGameHand();
+}
+
+// ── Render: Active Hand ──────────────────────────────────────────
+function renderGameHand() {
+  state.screen = 'game';
+  const cur   = gm.curHandIdx;
+  const pHand = gm.playerHands[cur];
+  const pTot  = gmTotal(pHand);
+  const isBJ  = gmIsBJ(pHand);
+  const isBust= pTot > 21;
+
+  const canHit    = !isBJ && !isBust && pTot < 21;
+  const canStand  = !isBust;
+  const canDouble = pHand.length === 2 && !isBJ && !isBust;
+  const canSplit  = pHand.length === 2 && gmIsPair(pHand) && gm.playerHands.length < 3;
+
+  const W = gm.actualResults.filter(r=>r==='win'||r==='bj').length;
+  const L = gm.actualResults.filter(r=>r==='loss').length;
+  const P = gm.actualResults.filter(r=>r==='push').length;
+
+  const splitChip = gm.playerHands.length > 1
+    ? `<span style="font-size:11px;background:rgba(139,92,246,.2);color:#a78bfa;padding:2px 8px;border-radius:100px;margin-left:6px">手${cur+1}/${gm.playerHands.length}</span>`
+    : '';
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="if(confirm('中断しますか？'))renderHome()">× 中断</button>
+        <span style="font-size:13px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}/${gm.target}</span>
+        <span style="font-size:13px;font-weight:700">
+          <span style="color:#4ade80">${W}W</span>
+          <span style="color:#f87171"> ${L}L</span>
+          <span style="color:var(--muted)"> ${P}P</span>
+        </span>
+      </div>
+      <div style="margin-bottom:14px">
+        <div class="card-lbl">ディーラー（アップカード）</div>
+        <div style="display:flex;gap:6px;justify-content:center">
+          ${gmCardHTML(gm.dealerHand[0])}${gmCardHTML(null,true)}
+        </div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div class="card-lbl">あなたの手札${splitChip} — 合計:
+          <strong style="color:${isBust?'#f87171':isBJ?'var(--gold)':'var(--text)'}">${isBJ?'BJ 🎉':isBust?'バスト 💀':pTot}</strong>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+          ${pHand.map(c=>gmCardHTML(c)).join('')}
+        </div>
+      </div>
+      <div class="action-grid">
+        <button class="act-btn btn-hit"    onclick="gmAction('Hit')"    ${!canHit   ?'disabled style="opacity:.28"':''}>Hit</button>
+        <button class="act-btn btn-stand"  onclick="gmAction('Stand')"  ${!canStand ?'disabled style="opacity:.28"':''}>Stand</button>
+        <button class="act-btn btn-double" onclick="gmAction('Double')" ${!canDouble?'disabled style="opacity:.28"':''}>Double</button>
+        <button class="act-btn btn-split"  onclick="gmAction('Split')"  ${!canSplit ?'disabled style="opacity:.28"':''}>Split</button>
+      </div>
+      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
+
+  if (isBJ && gm.playerHands.length === 1) setTimeout(() => gmNextHand(), 700);
+}
+
+// ── Player Action ────────────────────────────────────────────────
+function gmAction(action) {
+  const cur   = gm.curHandIdx;
+  const pHand = gm.playerHands[cur];
+  const canSp = pHand.length === 2 && gmIsPair(pHand);
+  const canDb = pHand.length === 2;
+  const { cat, key } = gmClassify(pHand);
+  gm.decisions.push({
+    situation:     `${cat} ${key} vs ${gmDKey(gm.dealerHand[0].rank)}`,
+    playerAction:  action,
+    correctAction: gmCorrectAction(pHand, gm.dealerHand[0].rank, canSp, canDb),
+  });
+
+  if (action === 'Hit') {
+    gm.playerHands[cur] = [...pHand, gmDraw()];
+    gmTotal(gm.playerHands[cur]) >= 21 ? gmNextHand() : renderGameHand();
+  } else if (action === 'Stand') {
+    gmNextHand();
+  } else if (action === 'Double') {
+    gm.handBets[cur] = 2; gm.doubled = true;
+    gm.playerHands[cur] = [...pHand, gmDraw()];
+    gmNextHand();
+  } else if (action === 'Split') {
+    gm.playerHands = [[pHand[0], gmDraw()], [pHand[1], gmDraw()]];
+    gm.handBets    = [1, 1];
+    gm.curHandIdx  = 0;
+    renderGameHand();
+  }
+}
+
+function gmNextHand() {
+  if (gm.curHandIdx < gm.playerHands.length - 1) {
+    gm.curHandIdx++; renderGameHand(); return;
+  }
+  gmDealerTurn();
+}
+
+// ── Dealer Turn ──────────────────────────────────────────────────
+function gmDealerTurn() {
+  while (gmTotal(gm.dealerHand) < 17 || (gmIsSoft(gm.dealerHand) && gmTotal(gm.dealerHand) === 17))
+    gm.dealerHand = [...gm.dealerHand, gmDraw()];
+  gmResolve();
+}
+
+// ── Resolve ──────────────────────────────────────────────────────
+function gmResolveOne(pHand) {
+  const pt = gmTotal(pHand), dt = gmTotal(gm.dealerHand);
+  if (gmIsBJ(pHand) && !gmIsBJ(gm.dealerHand)) return 'bj';
+  if (pt > 21)  return 'loss';
+  if (dt > 21)  return 'win';
+  if (pt > dt)  return 'win';
+  if (pt < dt)  return 'loss';
+  return 'push';
+}
+
+function gmResolve() {
+  const handResults = gm.playerHands.map(h => gmResolveOne(h));
+  let netActual;
+  if (handResults.length === 1) {
+    netActual = handResults[0];
+  } else {
+    const W = handResults.filter(r=>r==='win'||r==='bj').length;
+    const L = handResults.filter(r=>r==='loss').length;
+    netActual = W > L ? 'win' : L > W ? 'loss' : 'push';
+  }
+  const perfResult = gmSimPerfect(gm.shoe, gm.snapIdx, gm.snapPlayer, gm.snapDealer);
+  gm.actualResults.push(netActual);
+  gm.perfResults.push(perfResult);
+  renderHandResult(handResults, netActual, perfResult);
+}
+
+// ── Hand Result Screen ────────────────────────────────────────────
+function renderHandResult(handResults, netActual, perfResult) {
+  const W = gm.actualResults.filter(r=>r==='win'||r==='bj').length;
+  const L = gm.actualResults.filter(r=>r==='loss').length;
+  const P = gm.actualResults.filter(r=>r==='push').length;
+  const isLast  = gm.handsPlayed + 1 >= gm.target;
+  const rc = { win:'#4ade80', loss:'#f87171', push:'#fbbf24', bj:'var(--gold)' };
+  const rl = { win:'勝ち ✓',  loss:'負け ✗',  push:'引き分け', bj:'ブラックジャック！🎉' };
+  const wrongDecs      = gm.decisions.slice(gm.handDecStart).filter(d=>d.playerAction!==d.correctAction);
+  const resultChanged  = perfResult !== netActual && !(netActual==='bj'&&perfResult==='win');
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <span style="font-size:13px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}/${gm.target}</span>
+        <span style="font-size:13px;font-weight:700">
+          <span style="color:#4ade80">${W}W</span>
+          <span style="color:#f87171"> ${L}L</span>
+          <span style="color:var(--muted)"> ${P}P</span>
+        </span>
+        <div style="width:60px"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="card-lbl">ディーラー — 合計: ${gmTotal(gm.dealerHand)>21?'バスト 💀':gmTotal(gm.dealerHand)}</div>
+        <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+          ${gm.dealerHand.map(c=>gmCardHTML(c)).join('')}
+        </div>
+      </div>
+      ${gm.playerHands.map((h,i)=>`
+        <div style="margin-bottom:10px">
+          <div class="card-lbl">${gm.playerHands.length>1?`手${i+1} — `:''}あなた — 合計: ${gmTotal(h)>21?'バスト 💀':gmIsBJ(h)?'BJ':gmTotal(h)}</div>
+          <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
+            ${h.map(c=>gmCardHTML(c)).join('')}
+          </div>
+        </div>`).join('')}
+      <div class="feedback ${netActual==='loss'?'fb-ng':netActual==='push'?'':'fb-ok'}"
+           style="${netActual==='push'?'background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3)':''}">
+        <div class="fb-hd" style="color:${rc[netActual]||'#fff'}">${rl[netActual]||netActual}</div>
+        ${wrongDecs.length>0?`
+          <div style="margin-top:8px;font-size:13px;color:var(--muted)">⚠️ ストラテジーミス
+            ${wrongDecs.map(d=>`<div style="margin-top:4px;color:var(--text);font-size:12px">
+              ${d.situation}：あなた <span style="color:#f87171;font-weight:700">${d.playerAction}</span>
+              → 正解 <span style="color:#4ade80;font-weight:700">${d.correctAction}</span></div>`).join('')}
+          </div>`
+          :`<div style="font-size:12px;color:var(--muted);margin-top:4px">✓ ストラテジー正解</div>`}
+        ${resultChanged?`
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1);font-size:13px">
+            📊 正しい手なら: <span style="color:${rc[perfResult]||'#fff'};font-weight:700;font-size:15px"> ${rl[perfResult]||perfResult}</span>
+          </div>`:''}
+      </div>
+      <button class="btn btn-primary" onclick="gmNextOrEnd()">${isLast?'結果を見る →':'次のハンド →'}</button>
+      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
+  gm.handsPlayed++;
+}
+
+function gmNextOrEnd() {
+  if (gm.handsPlayed >= gm.target) { renderGameSummary(); return; }
+  gmDeal(); renderGameHand();
+}
+
+// ── Game Summary ──────────────────────────────────────────────────
+function renderGameSummary() {
+  state.screen = 'game-summary';
+  const total = gm.actualResults.length;
+  const aW = gm.actualResults.filter(r=>r==='win'||r==='bj').length;
+  const aL = gm.actualResults.filter(r=>r==='loss').length;
+  const aP = gm.actualResults.filter(r=>r==='push').length;
+  const aR = total>0 ? Math.round(aW/total*100) : 0;
+  const pW = gm.perfResults.filter(r=>r==='win'||r==='bj').length;
+  const pL = gm.perfResults.filter(r=>r==='loss').length;
+  const pP = gm.perfResults.filter(r=>r==='push').length;
+  const pR = total>0 ? Math.round(pW/total*100) : 0;
+  const totalDec   = gm.decisions.length;
+  const correctDec = gm.decisions.filter(d=>d.playerAction===d.correctAction).length;
+  const acc = totalDec>0 ? Math.round(correctDec/totalDec*100) : 100;
+  const diff    = pR - aR;
+  const diffStr = diff>0 ? `+${diff}%` : `${diff}%`;
+  const diffCol = diff>0 ? '#f87171' : diff<0 ? '#4ade80' : 'var(--muted)';
+  const wrongDecs = gm.decisions.filter(d=>d.playerAction!==d.correctAction);
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <span style="font-size:16px;font-weight:800;color:var(--gold)">ゲーム結果</span>
+        <div style="width:80px"></div>
+      </div>
+      <div class="stats-grid" style="margin-bottom:12px">
+        <div class="stat-box">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;letter-spacing:.06em">あなたの勝率</div>
+          <div style="font-size:38px;font-weight:900;color:var(--gold)">${aR}%</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">${aW}勝 ${aL}敗 ${aP}分</div>
+        </div>
+        <div class="stat-box">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;letter-spacing:.06em">正解手なら</div>
+          <div style="font-size:38px;font-weight:900;color:${pR>=aR?'#4ade80':'#f87171'}">${pR}%</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">${pW}勝 ${pL}敗 ${pP}分</div>
+        </div>
+      </div>
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">ストラテジー正解率</div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <div style="font-size:32px;font-weight:900;color:var(--gold)">${acc}%</div>
+          <div style="font-size:13px;color:var(--muted)">${correctDec} / ${totalDec} 判断</div>
+        </div>
+        <div class="bar-bg" style="height:8px">
+          <div class="bar-fill" style="width:${acc}%;background:${acc>=80?'var(--green)':acc>=60?'var(--gold)':'var(--red)'}"></div>
+        </div>
+      </div>
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">正解手との差</div>
+        <div style="font-size:15px;color:var(--text)">
+          ストラテジー通りなら <strong style="color:${diffCol}">${diffStr}</strong>
+          ${Math.abs(diff)>0 ? (diff>0?'多く負けた推計':'多く勝てた推計') : '（同等）'}
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.6">
+          ※ 完璧なベーシックストラテジーの理論勝率は約49.5%（ハウスエッジ約0.5%）
+        </div>
+      </div>
+      ${wrongDecs.length>0?`
+        <div class="info-card" style="margin-bottom:12px">
+          <div class="info-ttl">ミス一覧（${wrongDecs.length}件）</div>
+          <div class="wrong-list">
+            ${wrongDecs.map(d=>`<div class="wrong-row">
+              <span class="wrong-hand" style="font-size:12px">${d.situation}</span>
+              <span style="color:#f87171;font-size:12px;font-weight:700">${d.playerAction}</span>
+              <span style="color:var(--muted);font-size:11px">→</span>
+              <span style="color:#4ade80;font-size:12px;font-weight:700">${d.correctAction}</span>
+            </div>`).join('')}
+          </div>
+        </div>`
+        :`<div style="text-align:center;color:var(--green);font-size:15px;font-weight:700;margin-bottom:16px">全判断ベーシックストラテジー正解！🏆</div>`}
+      <div class="btn-stack">
+        <button class="btn btn-primary" onclick="renderGameMode()">もう一度プレイ</button>
+        <button class="btn btn-ghost"   onclick="renderHome()">ホームへ戻る</button>
+      </div>
+      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════

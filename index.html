@@ -550,6 +550,7 @@ function defaultStats() {
       Pair: { answered: 0, correct: 0 },
     },
     wrongIds: [],
+    gmWrongIds: [],      // 実戦モードで間違えた問題ID
     completedLessons: [],
   };
 }
@@ -652,7 +653,7 @@ function renderHome() {
   state.screen = 'home';
   const s = loadStats();
   const pct  = s.totalAnswered > 0 ? Math.round(s.totalCorrect / s.totalAnswered * 100) : null;
-  const weak = new Set(s.wrongIds).size;
+  const weak = (s.gmWrongIds || []).length;
 
   $app().innerHTML = `
     <div class="screen">
@@ -685,12 +686,13 @@ function renderHome() {
       </div>
 
       <div class="section">
-        <div class="sec-lbl">練習を始める</div>
+        <div class="sec-lbl">苦手克服</div>
         <div class="btn-stack">
-          <button class="btn btn-secondary" onclick="startQuiz('all')">🃏 10問テスト開始</button>
           <button class="btn btn-secondary" onclick="startQuiz('weak')" ${weak===0?'style="opacity:.42"':''}>
             🎯 苦手問題だけ練習
-            ${weak>0?`<span class="chip chip-hard" style="font-size:10px;margin-left:4px">${weak}問</span>`:''}
+            ${weak>0
+              ? `<span class="chip chip-hard" style="font-size:10px;margin-left:4px">${weak}問</span>`
+              : `<span style="font-size:11px;color:var(--muted);margin-left:6px">実戦でミスした問題</span>`}
           </button>
         </div>
       </div>
@@ -736,10 +738,11 @@ function startQuiz(mode) {
   let pool;
 
   if (mode === 'weak') {
-    const ws = new Set(s.wrongIds);
+    const ws = new Set(s.gmWrongIds || []);
     pool = ALL_QUESTIONS.filter(q => ws.has(q.id));
-    if (pool.length === 0) { showToast('まだ苦手問題はありません 🎉'); return; }
-    pool = shuffle(pool).slice(0, 10);
+    if (pool.length === 0) { showToast('まだ苦手問題はありません。実戦モードで練習しよう！'); return; }
+    // 苦手問題はすべて出す（上限なし — 正解で消えるため）
+    pool = shuffle(pool);
   } else if (mode === 'hard') {
     pool = shuffle(ALL_QUESTIONS.filter(q => q.category === 'Hard')).slice(0, 10);
   } else if (mode === 'soft') {
@@ -869,11 +872,28 @@ function saveResult(q, isCorrect) {
   if (!s.byCategory[q.category]) s.byCategory[q.category] = { answered:0, correct:0 };
   s.byCategory[q.category].answered++;
   if (isCorrect) s.byCategory[q.category].correct++;
-  if (!isCorrect) {
-    if (!Array.isArray(s.wrongIds)) s.wrongIds = [];
-    if (!s.wrongIds.includes(q.id)) s.wrongIds.push(q.id);
+
+  // 苦手問題練習モード: 正解→gmWrongIdsから削除、不正解→そのまま残す
+  if (state.quizMode === 'weak') {
+    if (isCorrect) {
+      if (!Array.isArray(s.gmWrongIds)) s.gmWrongIds = [];
+      s.gmWrongIds = s.gmWrongIds.filter(id => id !== q.id);
+    }
+    // 不正解のときはすでにgmWrongIdsに入っているので何もしない
   }
+
   saveStats(s);
+}
+
+// 実戦モードで間違えた問題をgmWrongIdsに記録
+function saveGmWrong(q) {
+  if (!q) return;
+  const s = loadStats();
+  if (!Array.isArray(s.gmWrongIds)) s.gmWrongIds = [];
+  if (!s.gmWrongIds.includes(q.id)) {
+    s.gmWrongIds.push(q.id);
+    saveStats(s);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -891,9 +911,12 @@ function renderQuizComplete() {
     .map(a => ALL_QUESTIONS.find(q => q.id === a.questionId))
     .filter(Boolean);
 
-  const msg = pct === 100 ? '完璧です！🏆'
-    : pct >= 80 ? 'よくできました！'
-    : pct >= 60 ? '引き続き練習しましょう！'
+  const remaining = (loadStats().gmWrongIds || []).length;
+
+  const msg = pct === 100 && state.quizMode === 'weak' && remaining === 0 ? '苦手問題を全部クリア！🏆'
+    : pct === 100 ? '完璧です！🏆'
+    : pct >= 80  ? 'よくできました！'
+    : pct >= 60  ? '引き続き練習しましょう！'
     : '苦手問題を重点的に練習しよう！';
 
   $app().innerHTML = `
@@ -923,10 +946,17 @@ function renderQuizComplete() {
         </div>
       ` : `<div style="text-align:center;color:var(--green);font-size:16px;font-weight:700;margin-bottom:20px">全問正解！完璧です 🏆</div>`}
 
+      ${state.quizMode === 'weak' && remaining > 0 ? `
+        <div style="text-align:center;font-size:13px;color:var(--muted);margin-bottom:8px">
+          残り苦手問題：<strong style="color:#f87171">${remaining}問</strong>
+        </div>` : ''}
       <div class="btn-stack">
-        <button class="btn btn-primary"    onclick="startQuiz(state.quizMode)">もう一度</button>
-        <button class="btn btn-secondary"  onclick="startQuiz('weak')">苦手問題を練習</button>
-        <button class="btn btn-ghost"      onclick="renderHome()">ホームへ戻る</button>
+        ${state.quizMode === 'weak' && remaining > 0
+          ? `<button class="btn btn-primary" onclick="startQuiz('weak')">続けて苦手練習 →</button>`
+          : `<button class="btn btn-primary" onclick="startQuiz(state.quizMode)">もう一度</button>`}
+        ${state.quizMode !== 'weak' && remaining > 0
+          ? `<button class="btn btn-secondary" onclick="startQuiz('weak')">苦手問題を練習（${remaining}問）</button>` : ''}
+        <button class="btn btn-ghost" onclick="renderHome()">ホームへ戻る</button>
       </div>
 
       <div class="disclaimer">
@@ -1037,8 +1067,9 @@ function resetStats() {
 //  RENDER: STRATEGY TABLE
 // ═══════════════════════════════════════════════════════════════
 
-function renderStrategyTable() {
-  state.screen = 'table';
+function renderStrategyTable(fromGame) {
+  state.screen    = 'table';
+  state.fromGame  = !!fromGame;
 
   const cellClass = { H:'cell-H', S:'cell-S', DD:'cell-DD', SP:'cell-SP' };
   const cellLabel = { H:'H', S:'S', DD:'DD', SP:'SP' };
@@ -1059,7 +1090,9 @@ function renderStrategyTable() {
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
-        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <button class="btn btn-ghost btn-sm" onclick="${state.fromGame ? 'renderGameHand()' : 'renderHome()'}">
+          ← ${state.fromGame ? 'ゲームに戻る' : 'ホーム'}
+        </button>
         <span style="font-size:16px;font-weight:800;color:var(--gold)">戦略表</span>
         <div style="width:80px"></div>
       </div>
@@ -1408,7 +1441,9 @@ function renderGameHand() {
         <button class="act-btn btn-double" onclick="gmAction('Double')" ${!canDouble?'disabled style="opacity:.28"':''}>Double</button>
         <button class="act-btn btn-split"  onclick="gmAction('Split')"  ${!canSplit ?'disabled style="opacity:.28"':''}>Split</button>
       </div>
-      <button class="btn btn-ghost" style="margin-top:8px;font-size:13px;opacity:.7"
+      <button class="btn btn-ghost" style="margin-top:10px;font-size:13px;color:var(--gold);border-color:rgba(201,162,39,.3)"
+        onclick="renderStrategyTable(true)">📋 戦略表を見る</button>
+      <button class="btn btn-ghost" style="margin-top:6px;font-size:12px;opacity:.6"
         onclick="if(confirm('ゲームを終了して結果を見ますか？'))renderGameSummary()">終了して結果を見る</button>
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;
@@ -1418,16 +1453,24 @@ function renderGameHand() {
 
 // ── Player Action ────────────────────────────────────────────────
 function gmAction(action) {
-  const cur   = gm.curHandIdx;
-  const pHand = gm.playerHands[cur];
-  const canSp = pHand.length === 2 && gmIsPair(pHand);
-  const canDb = pHand.length === 2;
+  const cur     = gm.curHandIdx;
+  const pHand   = gm.playerHands[cur];
+  const canSp   = pHand.length === 2 && gmIsPair(pHand);
+  const canDb   = pHand.length === 2;
   const { cat, key } = gmClassify(pHand);
+  const dk      = gmDKey(gm.dealerHand[0].rank);
+  const correct = gmCorrectAction(pHand, gm.dealerHand[0].rank, canSp, canDb);
   gm.decisions.push({
-    situation:     `${cat} ${key} vs ${gmDKey(gm.dealerHand[0].rank)}`,
+    situation:     `${cat} ${key} vs ${dk}`,
     playerAction:  action,
-    correctAction: gmCorrectAction(pHand, gm.dealerHand[0].rank, canSp, canDb),
+    correctAction: correct,
   });
+
+  // ミス → gmWrongIds に記録
+  if (action !== correct) {
+    const matchQ = ALL_QUESTIONS.find(q => q.playerHand === key && q.dealerCard === dk && q.category === cat);
+    saveGmWrong(matchQ);
+  }
 
   if (action === 'Hit') {
     gm.playerHands[cur] = [...pHand, gmDraw()];

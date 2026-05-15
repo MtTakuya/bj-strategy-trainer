@@ -539,6 +539,7 @@ function defaultStats() {
       Pair: { answered: 0, correct: 0 },
     },
     wrongIds: [],
+    completedLessons: [],
   };
 }
 
@@ -658,8 +659,13 @@ function renderHome() {
       </div>
 
       <div class="section">
-        <div class="sec-lbl">実戦</div>
+        <div class="sec-lbl">学習 & 実戦</div>
         <div class="btn-stack">
+          <button class="btn btn-primary" onclick="renderLearningMode()"
+            style="background:linear-gradient(135deg,#16a34a,#4ade80);color:#fff;font-size:17px">
+            📚 学習モード
+            <span style="font-size:11px;opacity:.85;margin-left:6px">${(loadStats().completedLessons||[]).length}/${LESSONS.length} 完了</span>
+          </button>
           <button class="btn btn-primary" onclick="renderGameMode()"
             style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;font-size:17px">
             🎰 実戦モード
@@ -1595,6 +1601,449 @@ function renderGameSummary() {
       <div class="btn-stack">
         <button class="btn btn-primary" onclick="renderGameMode()">もう一度プレイ</button>
         <button class="btn btn-ghost"   onclick="renderHome()">ホームへ戻る</button>
+      </div>
+      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LEARNING MODE — 学習モード
+//  Duolingo 風：ルール説明 → 例題 → 練習クイズ → 完了
+// ═══════════════════════════════════════════════════════════════
+
+const LESSONS = [
+  {
+    id: 1, icon: '💥', color: '#f59e0b',
+    title: 'ディーラーの弱点：4・5・6',
+    rule:  'ディーラーのアップカードが 4・5・6 のとき、バスト確率が最も高い。あなたはスタンドして相手のミスを待つのが基本！',
+    keyPoint: '4 < 5 < 6 の順で弱い。6 がバスト率最高！',
+    steps: [
+      { type:'explain', title:'なぜ 4・5・6 は弱いの？',
+        body:'ディーラーは17未満ならヒットし続けなければなりません。\n\nアップカードが4・5・6のとき、穴札を10と仮定すると合計は14・15・16。17にするには3〜7が必要ですが、デッキの約31%が10系なので引くとバストします。\n\nつまりあなたは「スタンドして待つ」だけで勝てることが多い！' },
+      { type:'example', title:'例題①', hand:'13', dealer:'5', cat:'Hard',
+        note:'ハード13 vs ディーラー5。13は弱そうに見えるが、ディーラーがバストしやすいのでスタンドが正解。' },
+      { type:'example', title:'例題②', hand:'16', dealer:'6', cat:'Hard',
+        note:'ハード16 vs ディーラー6。16は最悪の手だが、ディーラー6はバスト率最高。絶対スタンド！' },
+    ],
+    quizItems: [
+      { hand:'12', dealer:'4', cat:'Hard' },
+      { hand:'15', dealer:'5', cat:'Hard' },
+      { hand:'13', dealer:'6', cat:'Hard' },
+    ],
+  },
+  {
+    id: 2, icon: '🛑', color: '#ef4444',
+    title: 'ハード17以上は絶対スタンド',
+    rule:  'ハード17以上はディーラーのカードに関係なく常にスタンド。これは例外なしの絶対ルール！',
+    keyPoint: 'ハード17以上 → どんな状況でも STAND',
+    steps: [
+      { type:'explain', title:'なぜ17以上はスタンド？',
+        body:'ハード17でヒットした場合、バストしない（5以下を引く）確率は約30%のみ。\n\nディーラーが17以上になる確率は約58%もあります。17では勝てないことも多いですが、ヒットして負けるリスクの方がはるかに高い。\n\nハード17以上は黙ってスタンド！例外なし！' },
+      { type:'example', title:'例題①', hand:'17〜', dealer:'A', cat:'Hard',
+        note:'ハード17以上 vs ディーラーA。最も強いカードでも、それでもスタンド。ヒットは自殺行為。' },
+      { type:'example', title:'例題②', hand:'17〜', dealer:'7', cat:'Hard',
+        note:'ハード17以上 vs ディーラー7。迷わずスタンド。絶対に引かない。' },
+    ],
+    quizItems: [
+      { hand:'17〜', dealer:'10', cat:'Hard' },
+      { hand:'17〜', dealer:'A',  cat:'Hard' },
+      { hand:'17〜', dealer:'8',  cat:'Hard' },
+    ],
+  },
+  {
+    id: 3, icon: '⚡', color: '#c9a227',
+    title: 'ダブルダウンの黄金律：11',
+    rule:  'ハード11はディーラー2〜10に対してダブルダウン。エース相手のみヒット。強い手には強気で！',
+    keyPoint: '11 = ダブルダウンの最高機会（vs A 以外）',
+    steps: [
+      { type:'explain', title:'なぜ11でダブルダウン？',
+        body:'11に10系カード（10,J,Q,K）が来ると21になります。デッキの約31%が10系なので、非常に有利な状況。\n\nダブルダウンで賭け金を2倍にすることで、この優位性を最大化できます。\n\n📌 ディーラー2〜10 → ダブルダウン\n📌 ディーラーA → ヒット（Aの穴札を読めないため）' },
+      { type:'example', title:'例題①', hand:'11', dealer:'6', cat:'Hard',
+        note:'ハード11 vs ディーラー6。ディーラーも弱く最高の条件。迷わずダブルダウン！' },
+      { type:'example', title:'例題②', hand:'11', dealer:'10', cat:'Hard',
+        note:'ハード11 vs ディーラー10。ディーラーが強くてもダブルダウン。11の優位性の方が高い。' },
+    ],
+    quizItems: [
+      { hand:'11', dealer:'6',  cat:'Hard' },
+      { hand:'11', dealer:'10', cat:'Hard' },
+      { hand:'11', dealer:'A',  cat:'Hard' },
+    ],
+  },
+  {
+    id: 4, icon: '🃏', color: '#a78bfa',
+    title: 'A+A は必ずスプリット',
+    rule:  'エースのペアは常にスプリット。どんなディーラーカードでも例外なし！',
+    keyPoint: 'A+A → 常に SPLIT（例外なし！）',
+    steps: [
+      { type:'explain', title:'なぜA+Aをスプリット？',
+        body:'A+A = ソフト12（または2）は非常に弱いハンドです。\n\nスプリットすると、それぞれの手が「エース + 次のカード」になります。10系が来れば21！どんなカードが来てもエースが1または11に変わる柔軟性があります。\n\n期待値計算上、A+Aのスプリットはどのディーラーカードに対してもプラスです。' },
+      { type:'example', title:'例題①', hand:'A+A', dealer:'10', cat:'Pair',
+        note:'A+A vs ディーラー10。ディーラーが最強でも必ずスプリット！' },
+      { type:'example', title:'例題②', hand:'A+A', dealer:'2', cat:'Pair',
+        note:'A+A vs ディーラー2。もちろんスプリット。迷う必要なし。' },
+    ],
+    quizItems: [
+      { hand:'A+A', dealer:'5',  cat:'Pair' },
+      { hand:'A+A', dealer:'10', cat:'Pair' },
+      { hand:'A+A', dealer:'A',  cat:'Pair' },
+    ],
+  },
+  {
+    id: 5, icon: '💣', color: '#f87171',
+    title: '8+8：最悪の手をスプリットで救え',
+    rule:  '8+8（ハード16）は最悪のハンド。スプリットして2つの8から立て直せ！どのディーラーカードでも例外なし。',
+    keyPoint: '8+8 → 常に SPLIT（16のまま戦うな！）',
+    steps: [
+      { type:'explain', title:'なぜ8+8をスプリット？',
+        body:'ハード16は最もバスト率が高く、かつ勝ちにくい最悪のハンドです。\n\n8にはを引けば16〜21、2〜8を引けば10〜16と幅広い手が期待できます。\n\nたとえディーラーが10やAという最強カードでも、スプリットの方が期待値が高いことが数学的に証明されています。' },
+      { type:'example', title:'例題①', hand:'8+8', dealer:'10', cat:'Pair',
+        note:'8+8 vs ディーラー10という最悪の状況でも必ずスプリット。16のまま戦うより良い。' },
+      { type:'example', title:'例題②', hand:'8+8', dealer:'6', cat:'Pair',
+        note:'8+8 vs ディーラー6（弱）。もちろんスプリット。有利な展開を作れる。' },
+    ],
+    quizItems: [
+      { hand:'8+8', dealer:'6',  cat:'Pair' },
+      { hand:'8+8', dealer:'10', cat:'Pair' },
+      { hand:'8+8', dealer:'A',  cat:'Pair' },
+    ],
+  },
+  {
+    id: 6, icon: '🚫', color: '#64748b',
+    title: 'スプリットしてはいけないペア',
+    rule:  '10+10はスプリットせず（20は最強！）、5+5もスプリットせずハード10として扱う。',
+    keyPoint: '10+10 → STAND ｜ 5+5 → DOUBLE',
+    steps: [
+      { type:'explain', title:'10+10 と 5+5 の正解',
+        body:'10+10 = 20 は最強クラスのハンド。これをスプリットして2つの手に分けるのは愚策です。そのままスタンドで高確率で勝てます！\n\n5+5 = ハード10。スプリットして2つの5から始めるより、10としてダブルダウンする方が期待値が高い。5+5は絶対にスプリットしない！' },
+      { type:'example', title:'例題①', hand:'10+10', dealer:'6', cat:'Pair',
+        note:'10+10=20 vs ディーラー6。絶対にスプリットしない！スタンドで勝利を確保。' },
+      { type:'example', title:'例題②', hand:'5+5', dealer:'9', cat:'Pair',
+        note:'5+5=10 vs ディーラー9。スプリットせずダブルダウン！' },
+    ],
+    quizItems: [
+      { hand:'10+10', dealer:'6', cat:'Pair' },
+      { hand:'10+10', dealer:'A', cat:'Pair' },
+      { hand:'5+5',   dealer:'7', cat:'Pair' },
+    ],
+  },
+  {
+    id: 7, icon: '🎭', color: '#60a5fa',
+    title: 'ソフトハンドの基本：A+7（ソフト18）',
+    rule:  'ソフト18（A+7）は3パターン。9,10,A→ヒット ｜ 3〜6→ダブル ｜ 2,7,8→スタンド',
+    keyPoint: 'ソフト18は「強い」が「完璧」ではない！',
+    steps: [
+      { type:'explain', title:'ソフト18（A+7）の複雑さ',
+        body:'ソフト18は一見強そうですが、ディーラーが19〜21を出すと負けます。\n\n📌 ディーラー9,10,A（強い）→ ヒット\n　　ソフトなのでバストなしでカードを引ける。改善を狙う。\n\n📌 ディーラー3〜6（弱い）→ ダブルダウン\n　　有利な状況を賭け金2倍で最大化。\n\n📌 ディーラー2,7,8 → スタンド\n　　18で十分に戦える状況。' },
+      { type:'example', title:'例題①', hand:'A+7', dealer:'9', cat:'Soft',
+        note:'A+7 vs ディーラー9。ソフト18だがヒット。Aが1になれるのでバストしない！' },
+      { type:'example', title:'例題②', hand:'A+7', dealer:'4', cat:'Soft',
+        note:'A+7 vs ディーラー4（弱）。ダブルダウンで期待値を最大化！' },
+    ],
+    quizItems: [
+      { hand:'A+7', dealer:'9', cat:'Soft' },
+      { hand:'A+7', dealer:'4', cat:'Soft' },
+      { hand:'A+7', dealer:'2', cat:'Soft' },
+    ],
+  },
+  {
+    id: 8, icon: '💰', color: '#34d399',
+    title: 'ソフトハンドのダブルダウン',
+    rule:  'A+2〜A+6はディーラーが弱いときダブルダウンのチャンス。エースの柔軟性を活かせ！',
+    keyPoint: 'ソフト + ディーラー弱 = ダブルダウン機会！',
+    steps: [
+      { type:'explain', title:'ソフトダブルダウンの強さ',
+        body:'ソフトハンドでダブルダウンする最大のメリットは「バストしない」こと。\n\nカードを引いてもAceが1に変わるだけで、最悪でもハードハンドになります。\n\n📌 A+2, A+3 → ディーラー5,6でダブル\n📌 A+4, A+5 → ディーラー4,5,6でダブル\n📌 A+6 → ディーラー3,4,5,6でダブル' },
+      { type:'example', title:'例題①', hand:'A+5', dealer:'6', cat:'Soft',
+        note:'A+5（ソフト16）vs ディーラー6。バストを恐れずダブルダウン！' },
+      { type:'example', title:'例題②', hand:'A+6', dealer:'4', cat:'Soft',
+        note:'A+6（ソフト17）vs ディーラー4。スタンドせずダブルダウン！' },
+    ],
+    quizItems: [
+      { hand:'A+5', dealer:'6', cat:'Soft' },
+      { hand:'A+6', dealer:'4', cat:'Soft' },
+      { hand:'A+3', dealer:'5', cat:'Soft' },
+    ],
+  },
+  {
+    id: 9, icon: '🔢', color: '#f59e0b',
+    title: '9+9の例外：ディーラー7でスタンド',
+    rule:  '9+9はほぼスプリットだが、ディーラー7のときだけスタンド。18 > 推定17だから！',
+    keyPoint: '9+9 vs 7 → STAND（他の弱カードはSPLIT）',
+    steps: [
+      { type:'explain', title:'9+9 vs ディーラー7の特別ルール',
+        body:'ディーラーのアップカードが7のとき、穴札を10と仮定すると合計17です。\n\nあなたの9+9=18 > ディーラーの推定17。スタンドで有利！\n\nスプリットすると2つの9から始まりますが、確実に勝てる18を手放すリスクがあります。\n\n📌 9+9 vs 7 → スタンド（18 > 推定17）\n📌 9+9 vs 2〜6,8,9 → スプリット\n📌 9+9 vs 10,A → スタンド（負ける可能性高いため）' },
+      { type:'example', title:'例題①', hand:'9+9', dealer:'7', cat:'Pair',
+        note:'9+9=18 vs ディーラー7（推定17）。スタンドで確実に勝ちを狙う！' },
+      { type:'example', title:'例題②', hand:'9+9', dealer:'6', cat:'Pair',
+        note:'9+9 vs ディーラー6（弱）。弱カードなのでスプリットして有利展開。' },
+    ],
+    quizItems: [
+      { hand:'9+9', dealer:'7', cat:'Pair' },
+      { hand:'9+9', dealer:'6', cat:'Pair' },
+      { hand:'9+9', dealer:'9', cat:'Pair' },
+    ],
+  },
+  {
+    id: 10, icon: '🎯', color: '#ef4444',
+    title: 'ハード12の例外：2と3でヒット',
+    rule:  'ハード12はディーラー4,5,6でスタンド。しかし2と3に対してはヒット！数学的な例外。',
+    keyPoint: '12 vs 2,3 → HIT ｜ 12 vs 4,5,6 → STAND',
+    steps: [
+      { type:'explain', title:'ハード12の微妙なケース',
+        body:'普通「ディーラー弱カードでスタンド」ですが、12 vs 2,3 は例外です。\n\nディーラー2,3でのバスト率は約35%とそれほど高くなく、あなたの12が直接負ける確率の方が高い。\n\n12でヒットしてバストするのは10系カード（31%）を引いたときだけ。つまり69%はバストせずに手を改善できます。\n\n📌 12 vs 2,3 → ヒット（改善の余地あり）\n📌 12 vs 4,5,6 → スタンド（相手のバストを待て）' },
+      { type:'example', title:'例題①', hand:'12', dealer:'2', cat:'Hard',
+        note:'ハード12 vs ディーラー2。例外的にヒット！（vs 4,5,6 はスタンド）' },
+      { type:'example', title:'例題②', hand:'12', dealer:'4', cat:'Hard',
+        note:'ハード12 vs ディーラー4。これはスタンド。相手のバストを待てる。' },
+    ],
+    quizItems: [
+      { hand:'12', dealer:'2', cat:'Hard' },
+      { hand:'12', dealer:'4', cat:'Hard' },
+      { hand:'12', dealer:'3', cat:'Hard' },
+    ],
+  },
+];
+
+// ── Lesson State ──────────────────────────────────────────────
+let lessonSt = { lessonId: null, stepIdx: 0, phase: 'learn', quizIdx: 0, quizScores: [] };
+
+// ── Render: Lesson Home ───────────────────────────────────────
+function renderLearningMode() {
+  state.screen = 'learn-home';
+  const stats     = loadStats();
+  const completed = stats.completedLessons || [];
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <span style="font-size:16px;font-weight:800;color:var(--gold)">学習モード</span>
+        <div style="width:80px"></div>
+      </div>
+      <div style="padding:12px 0 20px">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px">
+          <span style="color:var(--muted)">進捗</span>
+          <span style="color:var(--gold);font-weight:700">${completed.length} / ${LESSONS.length} 完了</span>
+        </div>
+        <div class="bar-bg" style="height:8px">
+          <div class="bar-fill" style="width:${Math.round(completed.length/LESSONS.length*100)}%"></div>
+        </div>
+      </div>
+      <div class="btn-stack">
+        ${LESSONS.map(l => {
+          const done = completed.includes(l.id);
+          return `
+            <button class="btn btn-secondary" onclick="startLesson(${l.id})"
+              style="justify-content:flex-start;gap:14px;text-align:left;${done?'opacity:.75':''}">
+              <span style="font-size:24px;flex-shrink:0">${l.icon}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:14px;font-weight:700;color:${done?'var(--muted)':'var(--text)'}">${l.title}</div>
+                <div style="font-size:11px;color:${l.color};margin-top:2px">${l.keyPoint}</div>
+              </div>
+              <span style="font-size:18px;flex-shrink:0">${done?'✅':'›'}</span>
+            </button>`;
+        }).join('')}
+      </div>
+      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
+}
+
+// ── Start Lesson ──────────────────────────────────────────────
+function startLesson(id) {
+  lessonSt = { lessonId: id, stepIdx: 0, phase: 'learn', quizIdx: 0, quizScores: [] };
+  renderLessonStep();
+}
+
+// ── Render: Lesson Step (explain / example) ───────────────────
+function renderLessonStep() {
+  const lesson = LESSONS.find(l => l.id === lessonSt.lessonId);
+  const step   = lesson.steps[lessonSt.stepIdx];
+  const isLast = lessonSt.stepIdx >= lesson.steps.length - 1;
+  state.screen = 'lesson';
+
+  const dots = lesson.steps.map((_, i) =>
+    `<div style="width:9px;height:9px;border-radius:50%;background:${i<=lessonSt.stepIdx?lesson.color:'var(--border)'}"></div>`
+  ).join('');
+
+  let content = '';
+
+  if (step.type === 'explain') {
+    content = `
+      <div style="background:${lesson.color}22;border:1px solid ${lesson.color}55;border-radius:16px;padding:18px;margin-bottom:20px">
+        <div style="font-size:10px;font-weight:800;color:${lesson.color};letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px">KEY RULE</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);line-height:1.55">${lesson.rule}</div>
+      </div>
+      <div style="font-size:14px;color:var(--text);line-height:1.85;white-space:pre-wrap">${step.body}</div>`;
+  }
+
+  if (step.type === 'example') {
+    const q = ALL_QUESTIONS.find(q => q.playerHand===step.hand && q.dealerCard===step.dealer && q.category===step.cat);
+    const action = q ? q.correctAction : '?';
+    const actColor = { Hit:'#60a5fa', Stand:'#fbbf24', Double:'#f97316', Split:'#a78bfa' }[action] || '#fff';
+    const pcards  = handToCards(step.hand, step.cat);
+    content = `
+      <div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:20px">
+        <div style="text-align:center">
+          <div class="card-lbl">ディーラー</div>
+          ${cardHTML(step.dealer, false)}
+        </div>
+        <div class="vs-txt">VS</div>
+        <div style="text-align:center">
+          <div class="card-lbl">あなた</div>
+          <div class="player-cards">${pcards.map(v=>cardHTML(v,false)).join('')}</div>
+        </div>
+      </div>
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">正解アクション</div>
+        <div style="font-size:32px;font-weight:900;color:${actColor}">${action}</div>
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;font-size:14px;color:var(--muted);line-height:1.75">
+        💡 ${step.note}
+      </div>`;
+  }
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderLearningMode()">← 一覧</button>
+        <span style="font-size:14px;font-weight:800">${lesson.icon} ${lesson.title}</span>
+        <div style="width:60px"></div>
+      </div>
+      <div style="display:flex;gap:6px;justify-content:center;margin-bottom:18px">${dots}</div>
+      <div style="font-size:17px;font-weight:800;color:var(--text);margin-bottom:18px">${step.title}</div>
+      ${content}
+      <button class="btn btn-primary" style="margin-top:auto;margin-bottom:0"
+        onclick="${isLast ? 'startLessonQuiz()' : 'nextLessonStep()'}">
+        ${isLast ? '練習問題へ →' : '次へ →'}
+      </button>
+      <div class="disclaimer" style="padding-top:16px">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
+}
+
+function nextLessonStep() { lessonSt.stepIdx++; renderLessonStep(); }
+
+function startLessonQuiz() {
+  lessonSt.phase     = 'quiz';
+  lessonSt.quizIdx   = 0;
+  lessonSt.quizScores = [];
+  renderLessonQuiz();
+}
+
+// ── Render: Lesson Quiz ───────────────────────────────────────
+function renderLessonQuiz() {
+  const lesson = LESSONS.find(l => l.id === lessonSt.lessonId);
+  const item   = lesson.quizItems[lessonSt.quizIdx];
+  const q      = ALL_QUESTIONS.find(q => q.playerHand===item.hand && q.dealerCard===item.dealer && q.category===item.cat);
+  if (!q) { completeLessonQuiz(); return; }
+
+  state.screen = 'lesson-quiz';
+  const total  = lesson.quizItems.length;
+  const pct    = Math.round(lessonSt.quizIdx / total * 100);
+  const pcards = handToCards(q.playerHand, q.category);
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <span class="chip ${chipClass(q.category)}">${q.category}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--muted)">練習 ${lessonSt.quizIdx+1}/${total}</span>
+        <div style="width:60px"></div>
+      </div>
+      <div class="prog-wrap"><div class="prog-fill" style="width:${pct}%;background:${lesson.color}"></div></div>
+      <div style="text-align:center;font-size:13px;font-weight:700;margin-bottom:18px;color:${lesson.color}">
+        ${lesson.icon} ${lesson.title}
+      </div>
+      <div class="q-cards">
+        <div>
+          <div class="card-lbl">ディーラーのアップカード</div>
+          ${cardHTML(q.dealerCard, false)}
+        </div>
+        <div class="vs-txt">VS</div>
+        <div>
+          <div class="card-lbl">あなたの手札</div>
+          <div class="player-cards">${pcards.map(v=>cardHTML(v,false)).join('')}</div>
+        </div>
+      </div>
+      <div id="feedback" style="display:none"></div>
+      <div class="action-grid" id="actions">
+        <button class="act-btn btn-hit"    id="btn-Hit"    onclick="lessonAnswer('Hit')">Hit</button>
+        <button class="act-btn btn-stand"  id="btn-Stand"  onclick="lessonAnswer('Stand')">Stand</button>
+        <button class="act-btn btn-double" id="btn-Double" onclick="lessonAnswer('Double')">Double</button>
+        <button class="act-btn btn-split"  id="btn-Split"  onclick="lessonAnswer('Split')">Split</button>
+      </div>
+      <div id="next-area"></div>
+      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+    </div>`;
+}
+
+function lessonAnswer(action) {
+  const lesson = LESSONS.find(l => l.id === lessonSt.lessonId);
+  const item   = lesson.quizItems[lessonSt.quizIdx];
+  const q      = ALL_QUESTIONS.find(q => q.playerHand===item.hand && q.dealerCard===item.dealer && q.category===item.cat);
+  if (!q) return;
+
+  const isCorrect = action === q.correctAction;
+  lessonSt.quizScores.push(isCorrect);
+  saveResult(q, isCorrect); // 通常の成績にも反映
+
+  ['Hit','Stand','Double','Split'].forEach(a => {
+    const btn = document.getElementById('btn-'+a);
+    if (!btn) return;
+    btn.disabled = true;
+    if (a === q.correctAction) btn.classList.add('is-correct');
+    else if (a === action && !isCorrect) btn.classList.add('is-wrong');
+  });
+
+  const fb = document.getElementById('feedback');
+  fb.style.display = 'block';
+  fb.innerHTML = `
+    <div class="feedback ${isCorrect?'fb-ok':'fb-ng'}">
+      <div class="fb-hd">${isCorrect?'✓ 正解！':'✗ 不正解'}</div>
+      ${!isCorrect?`<div class="fb-ans">正解：${q.correctAction}</div>`:''}
+      <div class="fb-exp">${q.explanation}</div>
+    </div>`;
+
+  const isLastQ = lessonSt.quizIdx >= lesson.quizItems.length - 1;
+  document.getElementById('next-area').innerHTML = `
+    <button class="btn btn-primary" onclick="${isLastQ?'completeLessonQuiz()':'nextLessonQuiz()'}">
+      ${isLastQ?'結果を見る →':'次の問題 →'}
+    </button>`;
+}
+
+function nextLessonQuiz() { lessonSt.quizIdx++; renderLessonQuiz(); }
+
+// ── Lesson Complete ───────────────────────────────────────────
+function completeLessonQuiz() {
+  const lesson   = LESSONS.find(l => l.id === lessonSt.lessonId);
+  const correct  = lessonSt.quizScores.filter(Boolean).length;
+  const total    = lessonSt.quizScores.length;
+  const perfect  = correct === total;
+  const hasNext  = lessonSt.lessonId < LESSONS.length;
+
+  // 完了マークをsaveStats
+  const stats = loadStats();
+  if (!stats.completedLessons) stats.completedLessons = [];
+  if (!stats.completedLessons.includes(lessonSt.lessonId))
+    stats.completedLessons.push(lessonSt.lessonId);
+  saveStats(stats);
+
+  state.screen = 'lesson-complete';
+  $app().innerHTML = `
+    <div class="screen">
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;padding:20px 0">
+        <div style="font-size:60px">${perfect?'🏆':'📚'}</div>
+        <div style="font-size:22px;font-weight:900;color:var(--gold)">レッスン完了！</div>
+        <div style="font-size:15px;font-weight:700;color:var(--muted)">${lesson.icon} ${lesson.title}</div>
+        <div class="score-card" style="width:100%;margin:0">
+          <div class="score-frac">${correct}<span style="font-size:28px;color:var(--muted)"> / ${total}</span></div>
+          <div class="score-pct" style="font-size:20px">${Math.round(correct/total*100)}%</div>
+          <div class="score-msg">${perfect?'完璧！次のレッスンへ進もう 🎉':'練習問題をもう一度チャレンジしよう！'}</div>
+        </div>
+        ${perfect&&hasNext?`<div style="font-size:13px;color:var(--muted)">次のレッスン：${LESSONS[lessonSt.lessonId].icon} ${LESSONS[lessonSt.lessonId].title}</div>`:''}
+      </div>
+      <div class="btn-stack">
+        ${perfect&&hasNext?`<button class="btn btn-primary" onclick="startLesson(${lessonSt.lessonId+1})">次のレッスンへ →</button>`:''}
+        ${!perfect?`<button class="btn btn-secondary" onclick="startLesson(${lessonSt.lessonId})">もう一度</button>`:''}
+        <button class="btn btn-ghost" onclick="renderLearningMode()">レッスン一覧へ</button>
       </div>
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;

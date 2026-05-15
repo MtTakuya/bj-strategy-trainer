@@ -714,6 +714,7 @@ function renderHome() {
         <div class="sec-lbl">参考資料</div>
         <div class="btn-stack">
           <button class="btn btn-secondary" onclick="renderStrategyTable()" style="color:var(--gold)">📋 戦略表を見る</button>
+          <button class="btn btn-secondary" onclick="renderSimMode()" style="color:#60a5fa">📊 シミュレーション</button>
         </div>
       </div>
 
@@ -805,8 +806,6 @@ function renderQuestion() {
         </div>
       </div>
 
-      <div id="feedback" style="display:none"></div>
-
       <div class="action-grid" id="actions">
         <button class="act-btn btn-hit"    id="btn-Hit"    onclick="checkAnswer('Hit')">Hit</button>
         <button class="act-btn btn-stand"  id="btn-Stand"  onclick="checkAnswer('Stand')">Stand</button>
@@ -814,7 +813,9 @@ function renderQuestion() {
         <button class="act-btn btn-split"  id="btn-Split"  onclick="checkAnswer('Split')">Split</button>
       </div>
 
-      <div id="next-area"></div>
+      <div id="feedback" style="display:none;margin-top:12px"></div>
+
+      <div id="next-area" style="margin-top:10px;min-height:48px"></div>
 
       <div class="disclaimer">
         一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。
@@ -853,6 +854,7 @@ function checkAnswer(action) {
       ${!isCorrect ? `<div class="fb-ans">正解：${q.correctAction}</div>` : ''}
       <div class="fb-exp">${q.explanation}</div>
     </div>
+    ${miniStratRow(q.playerHand, q.dealerCard, q.category)}
   `;
 
   // Next button
@@ -1788,11 +1790,30 @@ function simulateBettingStrategies(results, initial, betUnit) {
     }
     return h;
   }
+  function simMartingale() {
+    // 連敗時に2倍、上限は初期資金の1/4（破産防止キャップ）
+    const cap = Math.max(betUnit * 16, Math.floor(initial / 4));
+    let br = initial, bet = betUnit; const h = [br];
+    for (const r of results) {
+      const actualBet = Math.min(bet, cap, br > 0 ? br : 0);
+      br = apply(br, r, actualBet);
+      if (r === 'bj' || r === 'win') { bet = betUnit; }
+      else if (r === 'loss') { bet = Math.min(bet * 2, cap); }
+      h.push(br);
+    }
+    return h;
+  }
   return [
-    { label: 'フラット（基準）', color: '#94a3b8', data: simFlat(),     dash: true  },
-    { label: 'パーレー(Paroli)', color: '#4ade80', data: simParoli(),   dash: false },
-    { label: '1-3-2-6',         color: '#f59e0b', data: sim1326(),     dash: false },
-    { label: "D'Alembert",      color: '#60a5fa', data: simDAlembert(), dash: false },
+    { label: 'フラット（基準）', color: '#94a3b8', data: simFlat(),        dash: true,  risk: '最低', riskColor: '#4ade80',
+      desc: '毎回同じ額を賭ける。最も安全で長期向き。' },
+    { label: 'パーレー(Paroli)', color: '#4ade80', data: simParoli(),      dash: false, risk: '低〜中', riskColor: '#86efac',
+      desc: '勝ったら倍、3連勝でリセット。連勝で稼ぎ、負けは最小。' },
+    { label: '1-3-2-6',         color: '#f59e0b', data: sim1326(),        dash: false, risk: '中', riskColor: '#fbbf24',
+      desc: '4段階の賭け増し法。4連勝で12倍、途中負けでも損失限定。' },
+    { label: "D'Alembert",      color: '#60a5fa', data: simDAlembert(),   dash: false, risk: '中', riskColor: '#fbbf24',
+      desc: '負け+1単位・勝ち-1単位。緩やかな調整で長期収支を安定。' },
+    { label: 'マーチンゲール',   color: '#f87171', data: simMartingale(),  dash: false, risk: '非常に高', riskColor: '#ef4444',
+      desc: '連敗するたびに2倍。短期回収力は高いが資金枯渇リスク大。' },
   ];
 }
 
@@ -1843,17 +1864,22 @@ function renderStrategyCompareChart(series, initial, cur) {
     <line x1="${PAD.l-2}" y1="${toY(v).toFixed(1)}" x2="${PAD.l}" y2="${toY(v).toFixed(1)}"
       stroke="rgba(255,255,255,.3)" stroke-width="1"/>`).join('');
 
+  const cols = 2;
+  const rowH = 13;
+  const rows = Math.ceil(series.length / cols);
   const legend = series.map((s,i) => {
-    const x = i < 2 ? (PAD.l + (i * cW/2)) : (PAD.l + ((i-2) * cW/2));
-    const y = i < 2 ? H - 2 : H + 11;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = PAD.l + col * (cW / cols);
+    const y = H + 4 + row * rowH;
     return `<g>
-      <line x1="${x}" y1="${y-3}" x2="${x+14}" y2="${y-3}" stroke="${s.color}"
+      <line x1="${x}" y1="${y-3}" x2="${x+12}" y2="${y-3}" stroke="${s.color}"
         stroke-width="${s.dash?1.5:2}" ${s.dash?'stroke-dasharray="4,2"':''}/>
-      <text x="${x+17}" y="${y}" font-size="8.5" fill="${s.color}" font-family="-apple-system,sans-serif">${s.label}</text>
+      <text x="${x+15}" y="${y}" font-size="8" fill="${s.color}" font-family="-apple-system,sans-serif">${s.label}</text>
     </g>`;
   }).join('');
 
-  const svgH = H + 16;
+  const svgH = H + 6 + rows * rowH;
   return `<svg width="100%" viewBox="0 0 ${W} ${svgH}" style="display:block;overflow:visible">
     <rect x="${PAD.l}" y="${PAD.t}" width="${cW}" height="${cH}"
       fill="rgba(255,255,255,.03)" rx="4" stroke="rgba(255,255,255,.06)" stroke-width="1"/>
@@ -1866,6 +1892,238 @@ function renderStrategyCompareChart(series, initial, cur) {
       fill="rgba(255,255,255,.35)">スタート</text>
     ${legend}
   </svg>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SIMULATION MODE — モンテカルロシミュレーション
+// ═══════════════════════════════════════════════════════════════
+
+// BJ確率モデル（ベーシックストラテジー適用時の推定値）
+const BJ_PROBS = { bj: 0.047, win: 0.377, push: 0.089, loss: 0.487 };
+
+function simDrawHand() {
+  const r = Math.random();
+  if (r < BJ_PROBS.bj)                         return 'bj';
+  if (r < BJ_PROBS.bj + BJ_PROBS.win)          return 'win';
+  if (r < BJ_PROBS.bj + BJ_PROBS.win + BJ_PROBS.push) return 'push';
+  return 'loss';
+}
+
+function simRunOne(strategyLabel, hands, initial, betUnit) {
+  const results = Array.from({ length: hands }, simDrawHand);
+  const allSeries = simulateBettingStrategies(results, initial, betUnit);
+  const s = allSeries.find(s => s.label === strategyLabel) || allSeries[0];
+  return s.data[s.data.length - 1];
+}
+
+const SIM_STRATEGIES = [
+  'フラット（基準）', 'パーレー(Paroli)', '1-3-2-6', "D'Alembert", 'マーチンゲール'
+];
+
+let simCfg = { strategy: 'フラット（基準）', hands: 50, initial: 10000, betUnit: 500 };
+
+function renderSimMode() {
+  state.screen = 'sim';
+  const c = simCfg;
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <span style="font-size:15px;font-weight:800;color:#60a5fa">📊 シミュレーション</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:16px">
+        掛け方戦略・ハンド数・資金を設定して
+        <strong style="color:var(--text)">1,000回</strong>試行した結果の分布を表示します。
+      </div>
+
+      <!-- 戦略選択 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">掛け方戦略</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${SIM_STRATEGIES.map(s => `
+            <button onclick="simSetStrategy('${s}')" id="simst-${s.replace(/[^a-zA-Z0-9]/g,'_')}"
+              class="btn ${c.strategy===s?'btn-primary':'btn-secondary'}"
+              style="text-align:left;font-size:13px;padding:10px 14px">
+              ${s}
+            </button>`).join('')}
+        </div>
+      </div>
+
+      <!-- ハンド数 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">ハンド数</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${[10,20,50,100,200].map(n => `
+            <button onclick="simSetHands(${n})" id="simh-${n}"
+              class="btn ${c.hands===n?'btn-primary':'btn-secondary'}"
+              style="flex:1;min-width:48px;font-size:14px;padding:10px 0">
+              ${n}
+            </button>`).join('')}
+        </div>
+      </div>
+
+      <!-- 資金・ベット -->
+      <div class="info-card" style="margin-bottom:16px">
+        <div class="info-ttl">資金設定</div>
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">スタート資金</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${[5000,10000,20000,50000].map(v => `
+              <button onclick="simSetInitial(${v})" id="simi-${v}"
+                class="btn ${c.initial===v?'btn-primary':'btn-secondary'}"
+                style="flex:1;min-width:60px;font-size:12px;padding:8px 0">
+                ¥${(v/1000).toFixed(0)}k
+              </button>`).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">1ハンドのベット額</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${[100,500,1000,2000].map(v => `
+              <button onclick="simSetBet(${v})" id="simb-${v}"
+                class="btn ${c.betUnit===v?'btn-primary':'btn-secondary'}"
+                style="flex:1;min-width:60px;font-size:12px;padding:8px 0">
+                ¥${v.toLocaleString()}
+              </button>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-stack">
+        <button class="btn btn-primary" style="font-size:16px;padding:16px" onclick="runSimulation()">
+          ▶ シミュレート実行（1,000回）
+        </button>
+      </div>
+      <div class="disclaimer">確率モデルによる推定。実際の結果とは異なります。</div>
+    </div>`;
+}
+
+function simSetStrategy(s) { simCfg.strategy = s; renderSimMode(); }
+function simSetHands(n)    { simCfg.hands    = n; renderSimMode(); }
+function simSetInitial(v)  { simCfg.initial  = v; renderSimMode(); }
+function simSetBet(v)      { simCfg.betUnit  = v; renderSimMode(); }
+
+function runSimulation() {
+  const { strategy, hands, initial, betUnit } = simCfg;
+  const TRIALS = 1000;
+
+  // ローディング表示
+  $app().innerHTML = `
+    <div class="screen" style="align-items:center;justify-content:center;display:flex;flex-direction:column;min-height:60vh">
+      <div style="font-size:32px;margin-bottom:12px">⏳</div>
+      <div style="font-size:15px;font-weight:700">シミュレーション中…</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">${TRIALS}回 × ${hands}ハンド</div>
+    </div>`;
+
+  // 非同期で実行（UIブロックを避けるため）
+  setTimeout(() => {
+    const finals = [];
+    for (let i = 0; i < TRIALS; i++) finals.push(simRunOne(strategy, hands, initial, betUnit));
+    finals.sort((a, b) => a - b);
+
+    const pct = p => finals[Math.floor(p * (TRIALS - 1))];
+    const p05 = pct(0.05), p25 = pct(0.25), p50 = pct(0.50), p75 = pct(0.75), p95 = pct(0.95);
+    const mean = finals.reduce((s, v) => s + v, 0) / TRIALS;
+    const profitPct = finals.filter(v => v > initial).length / TRIALS * 100;
+    const ruinPct   = finals.filter(v => v <= 0).length / TRIALS * 100;
+
+    // ヒストグラム
+    const minF = finals[0], maxF = finals[TRIALS-1];
+    const buckets = 20;
+    const bw = (maxF - minF) / buckets || betUnit;
+    const hist = Array(buckets).fill(0);
+    finals.forEach(v => {
+      const bi = Math.min(buckets - 1, Math.floor((v - minF) / bw));
+      hist[bi]++;
+    });
+    const maxH = Math.max(...hist);
+
+    const profit = mean - initial;
+    const pc = profit >= 0 ? '#4ade80' : '#f87171';
+
+    $app().innerHTML = `
+      <div class="screen">
+        <div class="topbar">
+          <button class="btn btn-ghost btn-sm" onclick="renderSimMode()">← 設定に戻る</button>
+          <span style="font-size:14px;font-weight:800;color:#60a5fa">結果</span>
+          <button class="btn btn-ghost btn-sm" onclick="renderHome()">ホーム</button>
+        </div>
+
+        <div style="font-size:13px;font-weight:700;text-align:center;margin-bottom:8px">
+          <span style="color:var(--gold)">${strategy}</span>
+          <span style="color:var(--muted);margin:0 6px">×</span>
+          <span>${hands}ハンド</span>
+          <span style="color:var(--muted);margin:0 6px">/</span>
+          ¥${initial.toLocaleString()} スタート
+        </div>
+
+        <!-- 分布ヒストグラム -->
+        <div class="info-card" style="margin-bottom:12px;padding:12px 10px">
+          <div class="info-ttl">最終資金の分布（${TRIALS}回）</div>
+          <div style="display:flex;align-items:flex-end;gap:2px;height:80px;margin:8px 0">
+            ${hist.map((h, i) => {
+              const v = minF + (i + 0.5) * bw;
+              const height = Math.round((h / maxH) * 80);
+              const color = v > initial ? '#4ade8066' : v < initial ? '#f8717166' : '#fbbf2466';
+              return `<div style="flex:1;background:${color};height:${height}px;border-radius:2px 2px 0 0;min-width:2px"></div>`;
+            }).join('')}
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
+            <span>¥${(minF/1000).toFixed(1)}k</span>
+            <span>¥${(initial/1000).toFixed(0)}k（元手）</span>
+            <span>¥${(maxF/1000).toFixed(1)}k</span>
+          </div>
+        </div>
+
+        <!-- パーセンタイル -->
+        <div class="info-card" style="margin-bottom:12px">
+          <div class="info-ttl">パーセンタイル分布</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+            ${[['最悪5%', p05], ['下位25%', p25], ['中央値', p50], ['上位25%', p75], ['最良5%', p95], ['平均', mean]].map(([lbl, v]) => {
+              const d = v - initial;
+              const dc = d > 0 ? '#4ade80' : d < 0 ? '#f87171' : 'var(--muted)';
+              return `<div style="background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+                <div style="font-size:9px;color:var(--muted);margin-bottom:2px">${lbl}</div>
+                <div style="font-size:13px;font-weight:800;color:${dc}">¥${Math.round(v).toLocaleString()}</div>
+                <div style="font-size:9px;color:${dc}">${d>=0?'+':''}${Math.round(d/initial*100)}%</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- キー指標 -->
+        <div class="info-card" style="margin-bottom:12px">
+          <div class="info-ttl">サマリー</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:10px;color:var(--muted)">期待値（平均損益）</div>
+              <div style="font-size:20px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit).toLocaleString()}</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:10px;color:var(--muted)">EV/ハンド</div>
+              <div style="font-size:20px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit/hands).toLocaleString()}</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:10px;color:var(--muted)">黒字になる確率</div>
+              <div style="font-size:20px;font-weight:900;color:${profitPct>=50?'#4ade80':'#f87171'}">${profitPct.toFixed(1)}%</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:10px;color:var(--muted)">資金枯渇リスク</div>
+              <div style="font-size:20px;font-weight:900;color:${ruinPct>5?'#f87171':ruinPct>0?'#fbbf24':'#4ade80'}">${ruinPct.toFixed(1)}%</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-stack">
+          <button class="btn btn-primary" onclick="runSimulation()">もう一度実行</button>
+          <button class="btn btn-secondary" onclick="renderSimMode()">設定を変える</button>
+          <button class="btn btn-ghost" onclick="renderHome()">ホームへ戻る</button>
+        </div>
+        <div class="disclaimer">確率モデルによる推定（勝率約42.5%・プッシュ約9%）。実際の結果とは異なります。</div>
+      </div>`;
+  }, 50);
 }
 
 // ── Bankroll SVG Chart ────────────────────────────────────────────
@@ -2217,35 +2475,44 @@ function renderGameSummary() {
         </div>
       </div>
 
-      <!-- ── 掛け方アドバイス ── -->
-      ${advice.length > 0 ? `
+      <!-- ── 掛け方ランキング（シミュレーション結果順） ── -->
       <div class="info-card" style="margin-bottom:12px">
-        <div class="info-ttl">💡 あなたのパターンに合った掛け方</div>
+        <div class="info-ttl">🏆 掛け方戦略ランキング（実結果ベース）</div>
         <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.6">
-          今回の${total}ハンドの結果をもとに、おすすめの賭け方を分析しました。
+          今回の${total}ハンドに各戦略を適用した場合の損益シミュレーション結果。
+          <strong style="color:var(--gold)">実際の勝敗順序で計算した結果です。</strong>
         </div>
-        ${advice.map((a, i) => `
-          <div style="background:${i===0?'rgba(201,162,39,.08)':'rgba(255,255,255,.03)'};border:1px solid ${i===0?'rgba(201,162,39,.3)':'rgba(255,255,255,.07)'};border-radius:14px;padding:14px;margin-bottom:10px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-              <span style="font-size:20px">${a.icon}</span>
-              <div>
-                <div style="font-size:14px;font-weight:800;color:${i===0?'var(--gold)':'var(--text)'}">${a.name}${i===0?' ⭐':''}</div>
-                <div style="font-size:10px;color:var(--muted)">${a.badge}</div>
+        ${[...betStrategies].sort((a,b)=>(b.data[b.data.length-1]-b.data[0])-(a.data[a.data.length-1]-a.data[0])).map((s, i) => {
+          const finalVal = s.data[s.data.length - 1];
+          const diff = finalVal - INITIAL;
+          const dc = diff > 0 ? '#4ade80' : diff < 0 ? '#f87171' : 'var(--muted)';
+          const isWinner = i === 0;
+          const isMartingale = s.label.includes('マーチン');
+          return `
+          <div style="background:${isWinner?'rgba(201,162,39,.08)':'rgba(255,255,255,.03)'};border:1.5px solid ${isWinner?'rgba(201,162,39,.35)':isMartingale?'rgba(248,113,113,.2)':'rgba(255,255,255,.07)'};border-radius:12px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-size:22px;font-weight:900;color:${isWinner?'var(--gold)':i===1?'#94a3b8':i===2?'#b87333':'var(--muted)'};min-width:28px;text-align:center">
+                ${isWinner?'🥇':i===1?'🥈':i===2?'🥉':''}${i+1}
               </div>
-              <div style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:100px;background:${(riskColor[a.risk]||'#888')}22;color:${riskColor[a.risk]||'#888'};font-weight:700;white-space:nowrap">
-                リスク:${a.risk}
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  <span style="font-size:13px;font-weight:800;color:${isWinner?'var(--gold)':'var(--text)'}">${s.label}</span>
+                  <span style="font-size:10px;padding:1px 7px;border-radius:100px;background:${s.riskColor}22;color:${s.riskColor};font-weight:700">リスク:${s.risk}</span>
+                </div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">${s.desc}</div>
+              </div>
+              <div style="text-align:right;white-space:nowrap">
+                <div style="font-size:16px;font-weight:900;color:${dc}">${diff>=0?'+':''}${fmt(diff)}</div>
+                <div style="font-size:10px;color:var(--muted)">${fmt(finalVal)}</div>
               </div>
             </div>
-            <div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:6px">${a.desc}</div>
-            <div style="font-size:11px;color:${i===0?'var(--gold)':'var(--muted)'};background:rgba(255,255,255,.05);border-radius:8px;padding:6px 10px;font-family:monospace">
-              例：${a.example}
-            </div>
-          </div>`).join('')}
+            ${isMartingale ? `<div style="margin-top:6px;font-size:10px;color:#f87171;background:rgba(248,113,113,.08);border-radius:6px;padding:4px 8px">⚠️ 長期では資金枯渇リスク大。テーブル上限に注意。</div>` : ''}
+          </div>`;
+        }).join('')}
         <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">
-          ※ これらは資金管理の参考です。どの手法もハウスエッジを消せません。
-          ベーシックストラテジーの習得が最優先です。
+          ※ 同じ勝敗順序でも、次回は異なる結果になります。どの手法もハウスエッジは消せません。
         </div>
-      </div>` : ''}
+      </div>
 
       <!-- ── ミス一覧 ── -->
       ${wrongDecs.length>0?`
@@ -2674,21 +2941,43 @@ function renderLessonStep() {
 function nextLessonStep() { lessonSt.stepIdx++; renderLessonStep(); }
 
 function startLessonQuiz() {
-  lessonSt.phase     = 'quiz';
-  lessonSt.quizIdx   = 0;
+  lessonSt.phase      = 'quiz';
+  lessonSt.quizIdx    = 0;
   lessonSt.quizScores = [];
+
+  // ダミー問題：他レッスンの quizItems からランダムに3問混入
+  const lesson = LESSONS.find(l => l.id === lessonSt.lessonId);
+  const ownKeys = new Set(lesson.quizItems.map(x => x.hand + x.dealer + x.cat));
+  const dummyPool = LESSONS.filter(l => l.id !== lessonSt.lessonId)
+    .flatMap(l => l.quizItems)
+    .filter(x => !ownKeys.has(x.hand + x.dealer + x.cat));
+  const dummies = dummyPool.sort(() => Math.random() - 0.5).slice(0, 3).map(x => ({ ...x, isDummy: true }));
+
+  // 元のクイズアイテムをシャッフルしてダミーを散りばめる
+  const base = [...lesson.quizItems].sort(() => Math.random() - 0.5);
+  const mixed = [];
+  const insertAt = new Set([Math.floor(base.length / 4), Math.floor(base.length / 2), Math.floor(base.length * 3 / 4)]);
+  let di = 0;
+  base.forEach((item, i) => {
+    mixed.push(item);
+    if (insertAt.has(i) && di < dummies.length) mixed.push(dummies[di++]);
+  });
+  while (di < dummies.length) mixed.push(dummies[di++]);
+
+  lessonSt.mixedItems = mixed;
   renderLessonQuiz();
 }
 
 // ── Render: Lesson Quiz ───────────────────────────────────────
 function renderLessonQuiz() {
   const lesson = LESSONS.find(l => l.id === lessonSt.lessonId);
-  const item   = lesson.quizItems[lessonSt.quizIdx];
-  const q      = ALL_QUESTIONS.find(q => q.playerHand===item.hand && q.dealerCard===item.dealer && q.category===item.cat);
+  const items  = lessonSt.mixedItems || lesson.quizItems;
+  const item   = items[lessonSt.quizIdx];
+  const q      = item ? ALL_QUESTIONS.find(q => q.playerHand===item.hand && q.dealerCard===item.dealer && q.category===item.cat) : null;
   if (!q) { completeLessonQuiz(); return; }
 
   state.screen = 'lesson-quiz';
-  const total  = lesson.quizItems.length;
+  const total  = items.length;
   const pct    = Math.round(lessonSt.quizIdx / total * 100);
   const pcards = handToCards(q.playerHand, q.category);
 
@@ -2700,8 +2989,10 @@ function renderLessonQuiz() {
         <span class="chip ${chipClass(q.category)}">${q.category}</span>
       </div>
       <div class="prog-wrap"><div class="prog-fill" style="width:${pct}%;background:${lesson.color}"></div></div>
-      <div style="text-align:center;font-size:13px;font-weight:700;margin-bottom:18px;color:${lesson.color}">
-        ${lesson.icon} ${lesson.title}
+      <div style="text-align:center;font-size:13px;font-weight:700;margin-bottom:18px;color:${item.isDummy?'#94a3b8':lesson.color}">
+        ${item.isDummy
+          ? `<span style="background:rgba(148,163,184,.15);border:1px solid rgba(148,163,184,.3);border-radius:100px;padding:2px 10px;font-size:11px;color:#94a3b8;margin-bottom:4px;display:inline-block">🎲 ランダム問題</span><br>知識の確認`
+          : `${lesson.icon} ${lesson.title}`}
       </div>
       <div class="q-cards">
         <div>
@@ -2714,21 +3005,22 @@ function renderLessonQuiz() {
           <div class="player-cards">${pcards.map(v=>cardHTML(v,false)).join('')}</div>
         </div>
       </div>
-      <div id="feedback" style="display:none"></div>
       <div class="action-grid" id="actions">
         <button class="act-btn btn-hit"    id="btn-Hit"    onclick="lessonAnswer('Hit')">Hit</button>
         <button class="act-btn btn-stand"  id="btn-Stand"  onclick="lessonAnswer('Stand')">Stand</button>
         <button class="act-btn btn-double" id="btn-Double" onclick="lessonAnswer('Double')">Double</button>
         <button class="act-btn btn-split"  id="btn-Split"  onclick="lessonAnswer('Split')">Split</button>
       </div>
-      <div id="next-area"></div>
+      <div id="feedback" style="display:none;margin-top:12px"></div>
+      <div id="next-area" style="margin-top:10px;min-height:48px"></div>
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;
 }
 
 function lessonAnswer(action) {
   const lesson = LESSONS.find(l => l.id === lessonSt.lessonId);
-  const item   = lesson.quizItems[lessonSt.quizIdx];
+  const items  = lessonSt.mixedItems || lesson.quizItems;
+  const item   = items[lessonSt.quizIdx];
   const q      = ALL_QUESTIONS.find(q => q.playerHand===item.hand && q.dealerCard===item.dealer && q.category===item.cat);
   if (!q) return;
 
@@ -2754,7 +3046,7 @@ function lessonAnswer(action) {
     </div>
     ${miniStratRow(q.playerHand, q.dealerCard, q.category)}`;
 
-  const isLastQ = lessonSt.quizIdx >= lesson.quizItems.length - 1;
+  const isLastQ = lessonSt.quizIdx >= (lessonSt.mixedItems || lesson.quizItems).length - 1;
   document.getElementById('next-area').innerHTML = `
     <button class="btn btn-primary" onclick="${isLastQ?'completeLessonQuiz()':'nextLessonQuiz()'}">
       ${isLastQ?'結果を見る →':'次の問題 →'}

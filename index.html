@@ -9,7 +9,15 @@
   <meta name="theme-color" content="#0a0f0d">
   <link rel="apple-touch-icon" href="icon.png">
   <link rel="icon" type="image/png" href="icon.png">
+  <link rel="manifest" href="manifest.json">
   <title>BJ Strategy Trainer</title>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -714,6 +722,7 @@ function renderHome() {
         <div class="sec-lbl">参考資料</div>
         <div class="btn-stack">
           <button class="btn btn-secondary" onclick="renderStrategyTable()" style="color:var(--gold)">📋 戦略表を見る</button>
+          <button class="btn btn-secondary" onclick="renderBettingGuide()" style="color:#4ade80">💰 掛け方ガイド</button>
           <button class="btn btn-secondary" onclick="renderSimMode()" style="color:#60a5fa">📊 シミュレーション</button>
         </div>
       </div>
@@ -1914,6 +1923,185 @@ function simRunOne(strategyLabel, hands, initial, betUnit) {
   const allSeries = simulateBettingStrategies(results, initial, betUnit);
   const s = allSeries.find(s => s.label === strategyLabel) || allSeries[0];
   return s.data[s.data.length - 1];
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BETTING GUIDE — 掛け方ガイド
+// ═══════════════════════════════════════════════════════════════
+
+function bgMiniChart(data, color, baseIdx) {
+  const W = 280, H = 72, PL = 6, PR = 6, PT = 6, PB = 16;
+  const cW = W - PL - PR, cH = H - PT - PB, n = data.length;
+  const minV = Math.min(...data), maxV = Math.max(...data);
+  const rng = maxV - minV || 1;
+  const tx = i => PL + (i / (n-1)) * cW;
+  const ty = v => PT + cH - ((v - minV) / rng) * cH;
+  const base = data[baseIdx ?? 0];
+  const baseLine = ty(base).toFixed(1);
+  const pts = data.map((v, i) => `${tx(i).toFixed(1)},${ty(v).toFixed(1)}`).join(' ');
+  const last = data[n-1];
+  const lc = last >= base ? '#4ade80' : '#f87171';
+  const area = `${tx(0)},${baseLine} ${pts} ${tx(n-1)},${baseLine}`;
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible">
+    <rect x="${PL}" y="${PT}" width="${cW}" height="${cH}" fill="rgba(255,255,255,.03)" rx="4"/>
+    <line x1="${PL}" y1="${baseLine}" x2="${W-PR}" y2="${baseLine}" stroke="rgba(255,255,255,.2)" stroke-dasharray="4,3" stroke-width="1"/>
+    <polygon points="${area}" fill="${lc}18"/>
+    <polyline points="${pts}" fill="none" stroke="${lc}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${tx(n-1).toFixed(1)}" cy="${ty(last).toFixed(1)}" r="4" fill="${lc}" stroke="#0d1117" stroke-width="2"/>
+    <text x="${PL+2}" y="${H-3}" font-size="8.5" fill="rgba(255,255,255,.35)" font-family="monospace">スタート</text>
+    <text x="${(W-PR-2).toFixed(1)}" y="${H-3}" text-anchor="end" font-size="8.5" fill="${lc}" font-family="monospace">${last>=base?'+':''}${last-base}</text>
+  </svg>`;
+}
+
+const BETTING_STRATEGIES_INFO = [
+  {
+    icon: '📊', name: 'フラットベット', risk: '最低', riskColor: '#4ade80',
+    tagline: '毎回同じ額を賭ける、最もシンプルな方法',
+    desc: 'どのハンドでも常に同じ金額を賭け続けます。感情に左右されず、資金管理が最もシンプル。長期的にはハウスエッジ分だけ緩やかに減っていきますが、バリアンス（ぶれ幅）が最小です。',
+    pros: ['シンプルで迷わない', '資金管理が容易', 'バリアンス最小'],
+    cons: ['連勝時に利益が伸びない', 'ゲームに飽きやすい'],
+    seqLabel: '毎回固定',
+    seq: ['¥500', '¥500', '¥500', '¥500', '¥500'],
+    seqNote: 'どの結果でも変わらず',
+    // 緩やかな上下のみ（安定した動き）
+    chartData: [0, -5, -10, -5, 0, 5, 0, -5, 0, 5, 10, 5, 10, 5, 10],
+    chartColor: '#94a3b8',
+  },
+  {
+    icon: '📈', name: 'パーレー法（Paroli）', risk: '低〜中', riskColor: '#86efac',
+    tagline: '勝ったら倍、3連勝でリセット',
+    desc: '勝ったら次のベットを2倍にし、3連勝したらリセット。「勝ち分で勝負する」のが基本思想で、負けても失うのは最初の1ベット分だけ。連勝が続いたときに一気に稼げるのが特徴です。',
+    pros: ['連勝で大きく稼げる', '負けても損失が限定的', '資金が少なくても使いやすい'],
+    cons: ['連勝しないと効果が薄い', '3連勝前に負けると割に合わないことも'],
+    seqLabel: '勝ち→倍、3連勝→リセット',
+    seq: ['¥500', '勝→¥1,000', '勝→¥2,000', '勝✓→¥500', '負→¥500'],
+    seqNote: '3連勝で¥3,500利益（フラットの7倍）',
+    // 連勝で一気に上がり、負けでリセット
+    chartData: [0, -5, 0, 5, 15, 35, 30, 25, 30, 35, 45, 65, 60, 55, 60],
+    chartColor: '#4ade80',
+  },
+  {
+    icon: '🎯', name: '1-3-2-6法', risk: '中', riskColor: '#fbbf24',
+    tagline: '4連勝で最大の利益、途中負けで損失限定',
+    desc: 'ベット額を「1→3→2→6」の順に増やし、勝ち続けるか負けたらリセット。4連勝すると12ユニットの利益になる一方、どのタイミングで負けても損失は1〜2ユニットに収まるよう設計されています。',
+    pros: ['4連勝で12倍の利益', '途中負けの損失を設計で限定', '短期決戦向き'],
+    cons: ['4連勝は確率的に稀', '2〜3ステップで負けるとほぼ±0かマイナス'],
+    seqLabel: '1→3→2→6（連勝毎に進む）',
+    seq: ['1U: ¥500', '3U: ¥1,500', '2U: ¥1,000', '6U: ¥3,000', '負→¥500'],
+    seqNote: '4連勝: +¥6,000（フラットの3倍）',
+    // 段階的上昇、時々急落してリセット
+    chartData: [0, -5, 0, 5, 20, 30, -5, -10, -5, 0, 15, 25, -10, -5, 0],
+    chartColor: '#f59e0b',
+  },
+  {
+    icon: '⚖️', name: 'ダランベール法', risk: '中', riskColor: '#fbbf24',
+    tagline: '負けたら+1単位、勝ったら-1単位の穏やかな調整',
+    desc: '負けるたびにベットを1単位増やし、勝つたびに1単位減らします。「勝ちと負けは長期的に均衡する」という考え方に基づく手法。マーチンゲールより増加が緩やかなため、連敗しても資金が急速に減りにくいです。',
+    pros: ['マーチンより安全', '連敗してもベットの増加が穏やか', '勝ち負けが交互に来る展開で効果的'],
+    cons: ['長い連敗には弱い', '期待値はフラットと同じ（マイナス）'],
+    seqLabel: '負け→+1単位、勝ち→-1単位',
+    seq: ['¥500', '負→¥1,000', '勝→¥500', '負→¥1,000', '勝→¥500'],
+    seqNote: '1勝1負のループで±0（理想ケース）',
+    // 緩やかな回復傾向
+    chartData: [0, -5, 5, 15, 25, 30, 20, 15, 30, 25, 40, 50, 45, 60, 70],
+    chartColor: '#60a5fa',
+  },
+  {
+    icon: '⚠️', name: 'マーチンゲール', risk: '非常に高', riskColor: '#ef4444',
+    tagline: '連敗するたびに2倍。短期は強いが資金枯渇リスク',
+    desc: '負けるたびにベット額を2倍にし、1回勝てば全損失を回収+1ユニット利益になる手法。短期的には有効に見えますが、連敗が続くと指数的にベット額が膨らみ、テーブルの上限や資金不足で詰みます。',
+    pros: ['1回勝てば損失回収', '短期では頻繁に小さな利益'],
+    cons: ['連敗6回で元手の63倍が必要', 'テーブルの上限で機能停止', '長期では必ず資金が尽きる'],
+    seqLabel: '負け→2倍、勝ち→リセット',
+    seq: ['¥500', '負→¥1,000', '負→¥2,000', '負→¥4,000', '勝→+¥500'],
+    seqNote: '4連敗後に1勝してもトータル+¥500のみ',
+    // 深い谷、その後急回復（ドラマチック）
+    chartData: [0, 5, 0, -10, -25, -55, 45, 40, 30, 20, 10, 0, -30, 55, 50],
+    chartColor: '#f87171',
+  },
+];
+
+function renderBettingGuide() {
+  state.screen = 'betting-guide';
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <span style="font-size:15px;font-weight:800;color:#4ade80">💰 掛け方ガイド</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:16px">
+        代表的な5つのベッティング戦略を解説します。
+        グラフはイメージ（同じ勝敗シーケンスに適用した例）です。
+      </div>
+
+      ${BETTING_STRATEGIES_INFO.map((s, idx) => `
+        <div class="info-card" style="margin-bottom:16px;border-color:${idx===4?'rgba(248,113,113,.2)':'var(--border)'}">
+          <!-- ヘッダー -->
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <span style="font-size:28px">${s.icon}</span>
+            <div style="flex:1">
+              <div style="font-size:16px;font-weight:800">${s.name}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:1px">${s.tagline}</div>
+            </div>
+            <div style="font-size:10px;padding:3px 10px;border-radius:100px;background:${s.riskColor}22;color:${s.riskColor};font-weight:700;white-space:nowrap">
+              リスク: ${s.risk}
+            </div>
+          </div>
+
+          <!-- 説明 -->
+          <div style="font-size:13px;color:var(--text);line-height:1.75;margin-bottom:14px">${s.desc}</div>
+
+          <!-- グラフ -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:5px">📈 資金推移イメージ（15ハンド例）</div>
+            <div style="background:var(--surface2);border-radius:10px;padding:8px 6px">
+              ${bgMiniChart(s.chartData, s.chartColor)}
+            </div>
+          </div>
+
+          <!-- ベット進行の例 -->
+          <div style="margin-bottom:12px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">🎲 ベット進行の例</div>
+            <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+              ${s.seq.map((step, i) => `
+                <div style="background:${i===0?'rgba(201,162,39,.1)':'rgba(255,255,255,.05)'};border:1px solid ${i===0?'rgba(201,162,39,.25)':'rgba(255,255,255,.08)'};border-radius:8px;padding:4px 8px;font-size:11px;font-weight:700;white-space:nowrap">${step}</div>
+                ${i < s.seq.length-1 ? '<span style="color:var(--muted);font-size:10px">→</span>' : ''}`).join('')}
+            </div>
+            <div style="font-size:10px;color:var(--gold);margin-top:5px">${s.seqNote}</div>
+          </div>
+
+          <!-- Pros/Cons -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div style="background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:10px;padding:10px">
+              <div style="font-size:10px;font-weight:800;color:#4ade80;margin-bottom:6px">✅ メリット</div>
+              ${s.pros.map(p => `<div style="font-size:11px;color:var(--text);line-height:1.6">・${p}</div>`).join('')}
+            </div>
+            <div style="background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);border-radius:10px;padding:10px">
+              <div style="font-size:10px;font-weight:800;color:#f87171;margin-bottom:6px">❌ デメリット</div>
+              ${s.cons.map(c => `<div style="font-size:11px;color:var(--text);line-height:1.6">・${c}</div>`).join('')}
+            </div>
+          </div>
+        </div>
+      `).join('')}
+
+      <div style="background:rgba(201,162,39,.08);border:1px solid rgba(201,162,39,.25);border-radius:14px;padding:14px;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:800;color:var(--gold);margin-bottom:8px">⚠️ 大前提：ハウスエッジは消えない</div>
+        <div style="font-size:12px;color:var(--text);line-height:1.75">
+          どのベッティング戦略も、<strong>長期的な期待値はマイナス</strong>です（ハウスエッジ約0.5%）。<br>
+          賭け方はあくまで「楽しみ方」や「短期の資金管理」の工夫であり、
+          勝率を上げるものではありません。<br>
+          <strong style="color:var(--gold)">最もお金を節約できるのは、ベーシックストラテジーを完璧に使うことです。</strong>
+        </div>
+      </div>
+
+      <div class="btn-stack">
+        <button class="btn btn-primary" onclick="renderSimMode()">📊 シミュレーションで試す</button>
+        <button class="btn btn-ghost" onclick="renderHome()">ホームへ戻る</button>
+      </div>
+      <div class="disclaimer">ベッティング戦略の説明は参考目的です。ギャンブルは計画的に。</div>
+    </div>`;
 }
 
 const SIM_STRATEGIES = [

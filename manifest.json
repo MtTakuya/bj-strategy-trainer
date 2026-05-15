@@ -1,0 +1,19 @@
+{
+  "name": "BJ Strategy Trainer",
+  "short_name": "BJ Trainer",
+  "description": "ブラックジャック ベーシックストラテジー練習アプリ",
+  "start_url": "/bj-strategy-trainer/",
+  "scope": "/bj-strategy-trainer/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0f0d",
+  "theme_color": "#0a0f0d",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

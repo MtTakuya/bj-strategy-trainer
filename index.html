@@ -268,6 +268,17 @@
       from { opacity: 0; transform: translateY(6px); }
       to   { opacity: 1; transform: translateY(0);   }
     }
+    @keyframes dealIn {
+      from { opacity: 0; transform: translateY(-32px) scale(.72) rotate(-8deg); }
+      to   { opacity: 1; transform: translateY(0)    scale(1)    rotate(0deg);  }
+    }
+    @keyframes flipIn {
+      0%   { opacity: 0; transform: scaleX(0) scaleY(.85); }
+      50%  { opacity: .5; transform: scaleX(.4) scaleY(.9); }
+      100% { opacity: 1; transform: scaleX(1) scaleY(1); }
+    }
+    .card-deal   { animation: dealIn .28s cubic-bezier(.2,.8,.35,1.05) both; }
+    .card-flip   { animation: flipIn .32s ease both; }
     .fb-ok  { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.35); }
     .fb-ng  { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.35); }
     .fb-hd  { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
@@ -1243,10 +1254,10 @@ function gmPlayHandPerfect(shoe, startIdx, pHand, dHand, upRank) {
 
 // ── Game State ───────────────────────────────────────────────────
 let gm = null;
-function gmInit(target) {
+function gmInit() {
   gm = {
     shoe: gmShuffle(gmMakeShoe()),
-    idx:  0, target,
+    idx:  0,
     handsPlayed:   0,
     playerHands:   [], handBets: [], curHandIdx: 0, doubled: false,
     dealerHand:    [],
@@ -1276,14 +1287,18 @@ function gmDeal() {
 }
 
 // ── Card HTML (game mode) ────────────────────────────────────────
-function gmCardHTML(card, faceDown) {
+// delay: ms for deal animation (0 = instant, -1 = no animation)
+function gmCardHTML(card, faceDown, delay = 0) {
+  const animStyle = delay >= 0
+    ? `animation:dealIn .28s cubic-bezier(.2,.8,.35,1.05) both;animation-delay:${delay}ms;`
+    : '';
   if (faceDown) return `
     <div style="width:68px;height:96px;background:#162318;border:2px solid var(--border);
       border-radius:10px;display:flex;align-items:center;justify-content:center;
-      box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:26px;color:var(--muted)">🂠</div>`;
+      box-shadow:0 4px 16px rgba(0,0,0,.5);font-size:26px;color:var(--muted);${animStyle}">🂠</div>`;
   const red = ['♥','♦'].includes(card.suit);
   const col = red ? '#dc2626' : '#1a1a1a';
-  return `<div class="playing-card" style="width:68px;height:96px;color:${col}"
+  return `<div class="playing-card" style="width:68px;height:96px;color:${col};${animStyle}"
     data-v="${card.rank}" data-s="${card.suit}">
     <div class="card-num" style="font-size:${card.rank==='10'?'24px':'30px'};color:${col}">${card.rank}</div>
     <div class="card-suit" style="font-size:14px;color:${col}">${card.suit}</div>
@@ -1319,18 +1334,17 @@ function renderGameMode() {
           💵 ブラックジャック = 勝ち扱い（3:2相当）
         </div>
       </div>
-      <div class="sec-lbl">ハンド数を選択</div>
       <div class="btn-stack">
-        <button class="btn btn-primary"   onclick="startGameMode(10)">10ハンド</button>
-        <button class="btn btn-secondary" onclick="startGameMode(20)">20ハンド</button>
-        <button class="btn btn-secondary" onclick="startGameMode(50)">50ハンド</button>
+        <button class="btn btn-primary" style="font-size:18px;padding:18px" onclick="startGameMode()">
+          🎰 ゲーム開始
+        </button>
       </div>
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;
 }
 
-function startGameMode(target) {
-  gmInit(target);
+function startGameMode() {
+  gmInit();
   gmDeal();
   renderGameHand();
 }
@@ -1357,29 +1371,35 @@ function renderGameHand() {
     ? `<span style="font-size:11px;background:rgba(139,92,246,.2);color:#a78bfa;padding:2px 8px;border-radius:100px;margin-left:6px">手${cur+1}/${gm.playerHands.length}</span>`
     : '';
 
+  // カード配布アニメーション：ディーラー表 0ms、ホール 100ms、プレイヤー 200ms+
+  const isNewDeal = pHand.length === 2 && gm.playerHands.length === 1 && !gm.doubled;
+  const dUpDelay  = isNewDeal ? 0   : -1;
+  const dHoleDelay= isNewDeal ? 100 : -1;
+  const pCardDelay = (i) => isNewDeal ? 200 + i * 120 : (i === pHand.length - 1 ? 0 : -1);
+
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
-        <button class="btn btn-ghost btn-sm" onclick="if(confirm('中断しますか？'))renderHome()">× 中断</button>
-        <span style="font-size:13px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}/${gm.target}</span>
+        <span style="font-size:13px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}</span>
         <span style="font-size:13px;font-weight:700">
           <span style="color:#4ade80">${W}W</span>
           <span style="color:#f87171"> ${L}L</span>
           <span style="color:var(--muted)"> ${P}P</span>
         </span>
+        <div style="width:40px"></div>
       </div>
       <div style="margin-bottom:14px">
         <div class="card-lbl">ディーラー（アップカード）</div>
         <div style="display:flex;gap:6px;justify-content:center">
-          ${gmCardHTML(gm.dealerHand[0])}${gmCardHTML(null,true)}
+          ${gmCardHTML(gm.dealerHand[0], false, dUpDelay)}${gmCardHTML(null, true, dHoleDelay)}
         </div>
       </div>
-      <div style="margin-bottom:20px">
+      <div style="margin-bottom:16px">
         <div class="card-lbl">あなたの手札${splitChip} — 合計:
           <strong style="color:${isBust?'#f87171':isBJ?'var(--gold)':'var(--text)'}">${isBJ?'BJ 🎉':isBust?'バスト 💀':pTot}</strong>
         </div>
         <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
-          ${pHand.map(c=>gmCardHTML(c)).join('')}
+          ${pHand.map((c,i)=>gmCardHTML(c, false, pCardDelay(i))).join('')}
         </div>
       </div>
       <div class="action-grid">
@@ -1388,6 +1408,8 @@ function renderGameHand() {
         <button class="act-btn btn-double" onclick="gmAction('Double')" ${!canDouble?'disabled style="opacity:.28"':''}>Double</button>
         <button class="act-btn btn-split"  onclick="gmAction('Split')"  ${!canSplit ?'disabled style="opacity:.28"':''}>Split</button>
       </div>
+      <button class="btn btn-ghost" style="margin-top:8px;font-size:13px;opacity:.7"
+        onclick="if(confirm('ゲームを終了して結果を見ますか？'))renderGameSummary()">終了して結果を見る</button>
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;
 
@@ -1470,16 +1492,18 @@ function renderHandResult(handResults, netActual, perfResult) {
   const W = gm.actualResults.filter(r=>r==='win'||r==='bj').length;
   const L = gm.actualResults.filter(r=>r==='loss').length;
   const P = gm.actualResults.filter(r=>r==='push').length;
-  const isLast  = gm.handsPlayed + 1 >= gm.target;
   const rc = { win:'#4ade80', loss:'#f87171', push:'#fbbf24', bj:'var(--gold)' };
   const rl = { win:'勝ち ✓',  loss:'負け ✗',  push:'引き分け', bj:'ブラックジャック！🎉' };
-  const wrongDecs      = gm.decisions.slice(gm.handDecStart).filter(d=>d.playerAction!==d.correctAction);
-  const resultChanged  = perfResult !== netActual && !(netActual==='bj'&&perfResult==='win');
+  const wrongDecs     = gm.decisions.slice(gm.handDecStart).filter(d=>d.playerAction!==d.correctAction);
+  const resultChanged = perfResult !== netActual && !(netActual==='bj'&&perfResult==='win');
+
+  // ディーラーが新たに引いたカード（3枚目以降）にアニメーション付与
+  const dealerAnim = (i) => i < 2 ? -1 : (i - 2) * 150;
 
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
-        <span style="font-size:13px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}/${gm.target}</span>
+        <span style="font-size:13px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}</span>
         <span style="font-size:13px;font-weight:700">
           <span style="color:#4ade80">${W}W</span>
           <span style="color:#f87171"> ${L}L</span>
@@ -1490,14 +1514,14 @@ function renderHandResult(handResults, netActual, perfResult) {
       <div style="margin-bottom:12px">
         <div class="card-lbl">ディーラー — 合計: ${gmTotal(gm.dealerHand)>21?'バスト 💀':gmTotal(gm.dealerHand)}</div>
         <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
-          ${gm.dealerHand.map(c=>gmCardHTML(c)).join('')}
+          ${gm.dealerHand.map((c,i)=>gmCardHTML(c, false, dealerAnim(i))).join('')}
         </div>
       </div>
       ${gm.playerHands.map((h,i)=>`
         <div style="margin-bottom:10px">
           <div class="card-lbl">${gm.playerHands.length>1?`手${i+1} — `:''}あなた — 合計: ${gmTotal(h)>21?'バスト 💀':gmIsBJ(h)?'BJ':gmTotal(h)}</div>
           <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
-            ${h.map(c=>gmCardHTML(c)).join('')}
+            ${h.map(c=>gmCardHTML(c, false, -1)).join('')}
           </div>
         </div>`).join('')}
       <div class="feedback ${netActual==='loss'?'fb-ng':netActual==='push'?'':'fb-ok'}"
@@ -1515,16 +1539,19 @@ function renderHandResult(handResults, netActual, perfResult) {
             📊 正しい手なら: <span style="color:${rc[perfResult]||'#fff'};font-weight:700;font-size:15px"> ${rl[perfResult]||perfResult}</span>
           </div>`:''}
       </div>
-      <button class="btn btn-primary" onclick="gmNextOrEnd()">${isLast?'結果を見る →':'次のハンド →'}</button>
+      <button class="btn btn-primary" onclick="gmPlayNext()">次のハンド →</button>
+      <button class="btn btn-ghost" style="margin-top:8px;font-size:13px"
+        onclick="renderGameSummary()">終了して結果を見る</button>
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;
   gm.handsPlayed++;
 }
 
-function gmNextOrEnd() {
-  if (gm.handsPlayed >= gm.target) { renderGameSummary(); return; }
+function gmPlayNext() {
   gmDeal(); renderGameHand();
 }
+// 後方互換（念のため残す）
+function gmNextOrEnd() { gmPlayNext(); }
 
 // ── Game Summary ──────────────────────────────────────────────────
 function renderGameSummary() {
@@ -1626,9 +1653,12 @@ const LESSONS = [
         note:'ハード16 vs ディーラー6。16は最悪の手だが、ディーラー6はバスト率最高。絶対スタンド！' },
     ],
     quizItems: [
-      { hand:'12', dealer:'4', cat:'Hard' },
-      { hand:'15', dealer:'5', cat:'Hard' },
-      { hand:'13', dealer:'6', cat:'Hard' },
+      // Hard 12〜16 vs 4,5,6 = 全15セル
+      {hand:'12',dealer:'4',cat:'Hard'},{hand:'12',dealer:'5',cat:'Hard'},{hand:'12',dealer:'6',cat:'Hard'},
+      {hand:'13',dealer:'4',cat:'Hard'},{hand:'13',dealer:'5',cat:'Hard'},{hand:'13',dealer:'6',cat:'Hard'},
+      {hand:'14',dealer:'4',cat:'Hard'},{hand:'14',dealer:'5',cat:'Hard'},{hand:'14',dealer:'6',cat:'Hard'},
+      {hand:'15',dealer:'4',cat:'Hard'},{hand:'15',dealer:'5',cat:'Hard'},{hand:'15',dealer:'6',cat:'Hard'},
+      {hand:'16',dealer:'4',cat:'Hard'},{hand:'16',dealer:'5',cat:'Hard'},{hand:'16',dealer:'6',cat:'Hard'},
     ],
   },
   {
@@ -1645,9 +1675,11 @@ const LESSONS = [
         note:'ハード17以上 vs ディーラー7。迷わずスタンド。絶対に引かない。' },
     ],
     quizItems: [
-      { hand:'17〜', dealer:'10', cat:'Hard' },
-      { hand:'17〜', dealer:'A',  cat:'Hard' },
-      { hand:'17〜', dealer:'8',  cat:'Hard' },
+      // Hard 17〜 vs 全ディーラーカード
+      {hand:'17〜',dealer:'2',cat:'Hard'},{hand:'17〜',dealer:'3',cat:'Hard'},{hand:'17〜',dealer:'4',cat:'Hard'},
+      {hand:'17〜',dealer:'5',cat:'Hard'},{hand:'17〜',dealer:'6',cat:'Hard'},{hand:'17〜',dealer:'7',cat:'Hard'},
+      {hand:'17〜',dealer:'8',cat:'Hard'},{hand:'17〜',dealer:'9',cat:'Hard'},{hand:'17〜',dealer:'10',cat:'Hard'},
+      {hand:'17〜',dealer:'A',cat:'Hard'},
     ],
   },
   {
@@ -1664,9 +1696,13 @@ const LESSONS = [
         note:'ハード11 vs ディーラー10。ディーラーが強くてもダブルダウン。11の優位性の方が高い。' },
     ],
     quizItems: [
-      { hand:'11', dealer:'6',  cat:'Hard' },
-      { hand:'11', dealer:'10', cat:'Hard' },
-      { hand:'11', dealer:'A',  cat:'Hard' },
+      // Hard 11 vs 全ディーラーカード（2〜10=Double, A=Hit）
+      {hand:'11',dealer:'2',cat:'Hard'},{hand:'11',dealer:'3',cat:'Hard'},{hand:'11',dealer:'4',cat:'Hard'},
+      {hand:'11',dealer:'5',cat:'Hard'},{hand:'11',dealer:'6',cat:'Hard'},{hand:'11',dealer:'7',cat:'Hard'},
+      {hand:'11',dealer:'8',cat:'Hard'},{hand:'11',dealer:'9',cat:'Hard'},{hand:'11',dealer:'10',cat:'Hard'},
+      {hand:'11',dealer:'A',cat:'Hard'},
+      // Hard 10 も比較用（2〜9=Double, 10,A=Hit）
+      {hand:'10',dealer:'5',cat:'Hard'},{hand:'10',dealer:'10',cat:'Hard'},{hand:'10',dealer:'A',cat:'Hard'},
     ],
   },
   {
@@ -1683,9 +1719,11 @@ const LESSONS = [
         note:'A+A vs ディーラー2。もちろんスプリット。迷う必要なし。' },
     ],
     quizItems: [
-      { hand:'A+A', dealer:'5',  cat:'Pair' },
-      { hand:'A+A', dealer:'10', cat:'Pair' },
-      { hand:'A+A', dealer:'A',  cat:'Pair' },
+      // A+A vs 全ディーラーカード（すべてSplit）
+      {hand:'A+A',dealer:'2',cat:'Pair'},{hand:'A+A',dealer:'3',cat:'Pair'},{hand:'A+A',dealer:'4',cat:'Pair'},
+      {hand:'A+A',dealer:'5',cat:'Pair'},{hand:'A+A',dealer:'6',cat:'Pair'},{hand:'A+A',dealer:'7',cat:'Pair'},
+      {hand:'A+A',dealer:'8',cat:'Pair'},{hand:'A+A',dealer:'9',cat:'Pair'},{hand:'A+A',dealer:'10',cat:'Pair'},
+      {hand:'A+A',dealer:'A',cat:'Pair'},
     ],
   },
   {
@@ -1702,9 +1740,11 @@ const LESSONS = [
         note:'8+8 vs ディーラー6（弱）。もちろんスプリット。有利な展開を作れる。' },
     ],
     quizItems: [
-      { hand:'8+8', dealer:'6',  cat:'Pair' },
-      { hand:'8+8', dealer:'10', cat:'Pair' },
-      { hand:'8+8', dealer:'A',  cat:'Pair' },
+      // 8+8 vs 全ディーラーカード（すべてSplit）
+      {hand:'8+8',dealer:'2',cat:'Pair'},{hand:'8+8',dealer:'3',cat:'Pair'},{hand:'8+8',dealer:'4',cat:'Pair'},
+      {hand:'8+8',dealer:'5',cat:'Pair'},{hand:'8+8',dealer:'6',cat:'Pair'},{hand:'8+8',dealer:'7',cat:'Pair'},
+      {hand:'8+8',dealer:'8',cat:'Pair'},{hand:'8+8',dealer:'9',cat:'Pair'},{hand:'8+8',dealer:'10',cat:'Pair'},
+      {hand:'8+8',dealer:'A',cat:'Pair'},
     ],
   },
   {
@@ -1721,9 +1761,16 @@ const LESSONS = [
         note:'5+5=10 vs ディーラー9。スプリットせずダブルダウン！' },
     ],
     quizItems: [
-      { hand:'10+10', dealer:'6', cat:'Pair' },
-      { hand:'10+10', dealer:'A', cat:'Pair' },
-      { hand:'5+5',   dealer:'7', cat:'Pair' },
+      // 10+10 vs 全ディーラーカード（すべてStand）
+      {hand:'10+10',dealer:'2',cat:'Pair'},{hand:'10+10',dealer:'3',cat:'Pair'},{hand:'10+10',dealer:'4',cat:'Pair'},
+      {hand:'10+10',dealer:'5',cat:'Pair'},{hand:'10+10',dealer:'6',cat:'Pair'},{hand:'10+10',dealer:'7',cat:'Pair'},
+      {hand:'10+10',dealer:'8',cat:'Pair'},{hand:'10+10',dealer:'9',cat:'Pair'},{hand:'10+10',dealer:'10',cat:'Pair'},
+      {hand:'10+10',dealer:'A',cat:'Pair'},
+      // 5+5 vs 全ディーラーカード（2〜9=Double, 10,A=Hit）
+      {hand:'5+5',dealer:'2',cat:'Pair'},{hand:'5+5',dealer:'3',cat:'Pair'},{hand:'5+5',dealer:'4',cat:'Pair'},
+      {hand:'5+5',dealer:'5',cat:'Pair'},{hand:'5+5',dealer:'6',cat:'Pair'},{hand:'5+5',dealer:'7',cat:'Pair'},
+      {hand:'5+5',dealer:'8',cat:'Pair'},{hand:'5+5',dealer:'9',cat:'Pair'},{hand:'5+5',dealer:'10',cat:'Pair'},
+      {hand:'5+5',dealer:'A',cat:'Pair'},
     ],
   },
   {
@@ -1740,9 +1787,13 @@ const LESSONS = [
         note:'A+7 vs ディーラー4（弱）。ダブルダウンで期待値を最大化！' },
     ],
     quizItems: [
-      { hand:'A+7', dealer:'9', cat:'Soft' },
-      { hand:'A+7', dealer:'4', cat:'Soft' },
-      { hand:'A+7', dealer:'2', cat:'Soft' },
+      // A+7（ソフト18）vs 全ディーラーカード
+      {hand:'A+7',dealer:'2',cat:'Soft'},{hand:'A+7',dealer:'3',cat:'Soft'},{hand:'A+7',dealer:'4',cat:'Soft'},
+      {hand:'A+7',dealer:'5',cat:'Soft'},{hand:'A+7',dealer:'6',cat:'Soft'},{hand:'A+7',dealer:'7',cat:'Soft'},
+      {hand:'A+7',dealer:'8',cat:'Soft'},{hand:'A+7',dealer:'9',cat:'Soft'},{hand:'A+7',dealer:'10',cat:'Soft'},
+      {hand:'A+7',dealer:'A',cat:'Soft'},
+      // 比較：ソフト19（A+8）は常にスタンド
+      {hand:'A+8',dealer:'6',cat:'Soft'},{hand:'A+8',dealer:'9',cat:'Soft'},{hand:'A+8',dealer:'A',cat:'Soft'},
     ],
   },
   {
@@ -1759,9 +1810,21 @@ const LESSONS = [
         note:'A+6（ソフト17）vs ディーラー4。スタンドせずダブルダウン！' },
     ],
     quizItems: [
-      { hand:'A+5', dealer:'6', cat:'Soft' },
-      { hand:'A+6', dealer:'4', cat:'Soft' },
-      { hand:'A+3', dealer:'5', cat:'Soft' },
+      // A+6（ソフト17）vs 全ディーラーカード
+      {hand:'A+6',dealer:'2',cat:'Soft'},{hand:'A+6',dealer:'3',cat:'Soft'},{hand:'A+6',dealer:'4',cat:'Soft'},
+      {hand:'A+6',dealer:'5',cat:'Soft'},{hand:'A+6',dealer:'6',cat:'Soft'},{hand:'A+6',dealer:'7',cat:'Soft'},
+      {hand:'A+6',dealer:'8',cat:'Soft'},{hand:'A+6',dealer:'9',cat:'Soft'},{hand:'A+6',dealer:'10',cat:'Soft'},
+      {hand:'A+6',dealer:'A',cat:'Soft'},
+      // A+5（ソフト16）vs 代表ディーラーカード
+      {hand:'A+5',dealer:'4',cat:'Soft'},{hand:'A+5',dealer:'5',cat:'Soft'},{hand:'A+5',dealer:'6',cat:'Soft'},
+      {hand:'A+5',dealer:'3',cat:'Soft'},{hand:'A+5',dealer:'7',cat:'Soft'},{hand:'A+5',dealer:'9',cat:'Soft'},
+      // A+4, A+3, A+2
+      {hand:'A+4',dealer:'4',cat:'Soft'},{hand:'A+4',dealer:'5',cat:'Soft'},{hand:'A+4',dealer:'6',cat:'Soft'},
+      {hand:'A+4',dealer:'3',cat:'Soft'},{hand:'A+4',dealer:'7',cat:'Soft'},
+      {hand:'A+3',dealer:'5',cat:'Soft'},{hand:'A+3',dealer:'6',cat:'Soft'},{hand:'A+3',dealer:'4',cat:'Soft'},
+      {hand:'A+3',dealer:'7',cat:'Soft'},
+      {hand:'A+2',dealer:'5',cat:'Soft'},{hand:'A+2',dealer:'6',cat:'Soft'},{hand:'A+2',dealer:'4',cat:'Soft'},
+      {hand:'A+2',dealer:'7',cat:'Soft'},
     ],
   },
   {
@@ -1778,9 +1841,11 @@ const LESSONS = [
         note:'9+9 vs ディーラー6（弱）。弱カードなのでスプリットして有利展開。' },
     ],
     quizItems: [
-      { hand:'9+9', dealer:'7', cat:'Pair' },
-      { hand:'9+9', dealer:'6', cat:'Pair' },
-      { hand:'9+9', dealer:'9', cat:'Pair' },
+      // 9+9 vs 全ディーラーカード（7,10,A=Stand、それ以外=Split）
+      {hand:'9+9',dealer:'2',cat:'Pair'},{hand:'9+9',dealer:'3',cat:'Pair'},{hand:'9+9',dealer:'4',cat:'Pair'},
+      {hand:'9+9',dealer:'5',cat:'Pair'},{hand:'9+9',dealer:'6',cat:'Pair'},{hand:'9+9',dealer:'7',cat:'Pair'},
+      {hand:'9+9',dealer:'8',cat:'Pair'},{hand:'9+9',dealer:'9',cat:'Pair'},{hand:'9+9',dealer:'10',cat:'Pair'},
+      {hand:'9+9',dealer:'A',cat:'Pair'},
     ],
   },
   {
@@ -1797,15 +1862,61 @@ const LESSONS = [
         note:'ハード12 vs ディーラー4。これはスタンド。相手のバストを待てる。' },
     ],
     quizItems: [
-      { hand:'12', dealer:'2', cat:'Hard' },
-      { hand:'12', dealer:'4', cat:'Hard' },
-      { hand:'12', dealer:'3', cat:'Hard' },
+      // Hard 12 vs 全ディーラーカード（2,3=Hit / 4,5,6=Stand / 7+=Hit）
+      {hand:'12',dealer:'2',cat:'Hard'},{hand:'12',dealer:'3',cat:'Hard'},{hand:'12',dealer:'4',cat:'Hard'},
+      {hand:'12',dealer:'5',cat:'Hard'},{hand:'12',dealer:'6',cat:'Hard'},{hand:'12',dealer:'7',cat:'Hard'},
+      {hand:'12',dealer:'8',cat:'Hard'},{hand:'12',dealer:'9',cat:'Hard'},{hand:'12',dealer:'10',cat:'Hard'},
+      {hand:'12',dealer:'A',cat:'Hard'},
+      // 比較：Hard 13 vs 2,3（12と違ってStand）
+      {hand:'13',dealer:'2',cat:'Hard'},{hand:'13',dealer:'3',cat:'Hard'},
+      // Hard 8以下、9 でのヒット確認
+      {hand:'8以下',dealer:'6',cat:'Hard'},{hand:'9',dealer:'3',cat:'Hard'},{hand:'9',dealer:'6',cat:'Hard'},
     ],
   },
 ];
 
 // ── Lesson State ──────────────────────────────────────────────
 let lessonSt = { lessonId: null, stepIdx: 0, phase: 'learn', quizIdx: 0, quizScores: [] };
+
+// ── Strategy Table Row Reference ─────────────────────────────
+// 学習モードで「ストラテジー表のこの行」を表示するミニテーブル
+function miniStratRow(hand, dealerCard, category) {
+  const cols  = ['2','3','4','5','6','7','8','9','10','A'];
+  const actC  = { Hit:'#60a5fa', Stand:'#fbbf24', Double:'#f97316', Split:'#a78bfa' };
+  const actS  = { Hit:'H', Stand:'S', Double:'D', Split:'SP' };
+  const row   = cols.map(d => {
+    const q = ALL_QUESTIONS.find(q => q.playerHand===hand && q.dealerCard===d && q.category===category);
+    return q ? q.correctAction : null;
+  });
+  return `
+    <div style="margin:14px 0">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:5px;font-weight:600">
+        📊 ストラテジー表 — ${category} <strong style="color:var(--text)">${hand}</strong> の行
+      </div>
+      <div style="overflow-x:auto">
+        <div style="display:inline-flex;gap:2px;min-width:100%">
+          <div style="width:32px;flex-shrink:0"></div>
+          ${cols.map(d => `
+            <div style="flex:1;min-width:26px;text-align:center;font-size:9px;
+              color:${d===dealerCard?'var(--gold)':'var(--muted)'};
+              font-weight:${d===dealerCard?'900':'400'};
+              padding-bottom:2px">${d}</div>`).join('')}
+        </div>
+        <div style="display:inline-flex;gap:2px;min-width:100%">
+          <div style="width:32px;flex-shrink:0;font-size:10px;color:var(--muted);
+            display:flex;align-items:center;justify-content:center">${hand}</div>
+          ${row.map((act, i) => {
+            const isHL = cols[i] === dealerCard;
+            return `<div style="flex:1;min-width:26px;text-align:center;padding:5px 2px;border-radius:4px;
+              font-size:${isHL?'12px':'10px'};font-weight:${isHL?'900':'600'};
+              color:${act ? actC[act] : '#555'};
+              background:${isHL && act ? actC[act]+'25' : 'transparent'};
+              border:${isHL && act ? `1.5px solid ${actC[act]}55` : '1.5px solid transparent'}">${act ? actS[act] : '?'}</div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>`;
+}
 
 // ── Render: Lesson Home ───────────────────────────────────────
 function renderLearningMode() {
@@ -1882,7 +1993,7 @@ function renderLessonStep() {
     const actColor = { Hit:'#60a5fa', Stand:'#fbbf24', Double:'#f97316', Split:'#a78bfa' }[action] || '#fff';
     const pcards  = handToCards(step.hand, step.cat);
     content = `
-      <div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-bottom:16px">
         <div style="text-align:center">
           <div class="card-lbl">ディーラー</div>
           ${cardHTML(step.dealer, false)}
@@ -1893,11 +2004,12 @@ function renderLessonStep() {
           <div class="player-cards">${pcards.map(v=>cardHTML(v,false)).join('')}</div>
         </div>
       </div>
-      <div style="text-align:center;margin-bottom:16px">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">正解アクション</div>
+      <div style="text-align:center;margin-bottom:12px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">正解アクション</div>
         <div style="font-size:32px;font-weight:900;color:${actColor}">${action}</div>
       </div>
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;font-size:14px;color:var(--muted);line-height:1.75">
+      ${miniStratRow(step.hand, step.dealer, step.cat)}
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:12px;font-size:13px;color:var(--muted);line-height:1.75">
         💡 ${step.note}
       </div>`;
   }
@@ -2000,7 +2112,8 @@ function lessonAnswer(action) {
       <div class="fb-hd">${isCorrect?'✓ 正解！':'✗ 不正解'}</div>
       ${!isCorrect?`<div class="fb-ans">正解：${q.correctAction}</div>`:''}
       <div class="fb-exp">${q.explanation}</div>
-    </div>`;
+    </div>
+    ${miniStratRow(q.playerHand, q.dealerCard, q.category)}`;
 
   const isLastQ = lessonSt.quizIdx >= lesson.quizItems.length - 1;
   document.getElementById('next-area').innerHTML = `

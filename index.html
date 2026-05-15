@@ -1639,11 +1639,11 @@ function gmNextOrEnd() { gmPlayNext(); }
 // ハンド開始直後（アクション前）に「終了」を押したとき
 // → 現ハンドはなかったものとして結果表示
 function gmEndMidHand() {
-  if (gm.handsPlayed === 0 && gm.actualResults.length === 0) {
-    showToast('まだ1ハンドも完了していません');
-    return;
+  if (gm.actualResults.length === 0) {
+    showToast('ゲームをキャンセルしました');
+  } else {
+    showToast('現在のハンドはキャンセルして集計します');
   }
-  showToast('現在のハンドはキャンセルして集計します');
   renderGameSummary();
 }
 
@@ -1809,6 +1809,7 @@ function renderGameSummary() {
   const INITIAL = 10000;
   const finalBR  = gm.bankroll;
   const profit   = finalBR - INITIAL;
+  const profitPct = (profit / INITIAL * 100).toFixed(1);
   const profitColor = profit > 0 ? '#4ade80' : profit < 0 ? '#f87171' : 'var(--muted)';
 
   // ユニット損益: 何ベット分得た/失ったか（カジノ標準指標）
@@ -1831,6 +1832,27 @@ function renderGameSummary() {
 
   const advice    = getBettingAdvice(gm.actualResults, finalBR, INITIAL);
   const riskColor = { '最低':'#4ade80', '低':'#86efac', '低〜中':'#fbbf24', '中':'#f97316', '高':'#f87171', '非常に高':'#ef4444' };
+
+  if (total === 0) {
+    $app().innerHTML = `
+      <div class="screen">
+        <div class="topbar">
+          <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+          <span style="font-size:16px;font-weight:800;color:var(--gold)">ゲーム結果</span>
+          <div style="width:80px"></div>
+        </div>
+        <div style="text-align:center;padding:40px 20px">
+          <div style="font-size:40px;margin-bottom:16px">🃏</div>
+          <div style="font-size:16px;font-weight:700;color:var(--muted);margin-bottom:8px">ゲームキャンセル</div>
+          <div style="font-size:13px;color:var(--muted);line-height:1.7">まだ1ハンドも完了していないため、<br>集計データはありません。</div>
+        </div>
+        <div class="btn-stack">
+          <button class="btn btn-primary" onclick="renderGameMode()">もう一度プレイ</button>
+          <button class="btn btn-ghost" onclick="renderHome()">ホームへ戻る</button>
+        </div>
+      </div>`;
+    return;
+  }
 
   $app().innerHTML = `
     <div class="screen">

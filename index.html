@@ -1812,17 +1812,52 @@ function simulateBettingStrategies(results, initial, betUnit) {
     }
     return h;
   }
+  function simFibonacci() {
+    const fib = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
+    let br = initial, idx = 0; const h = [br];
+    for (const r of results) {
+      const bet = betUnit * fib[Math.min(idx, fib.length - 1)];
+      const actualBet = Math.min(bet, br > 0 ? br : betUnit);
+      br = apply(br, r, actualBet);
+      if (r === 'bj' || r === 'win') { idx = Math.max(0, idx - 2); }
+      else if (r === 'loss') { idx = Math.min(idx + 1, fib.length - 1); }
+      h.push(br);
+    }
+    return h;
+  }
+  function simLabouchere() {
+    const initSeq = [1, 2, 3, 4];
+    let br = initial, seq = [...initSeq]; const h = [br];
+    for (const r of results) {
+      if (seq.length === 0) seq = [...initSeq];
+      const betMult = seq.length === 1 ? seq[0] : seq[0] + seq[seq.length - 1];
+      const bet = Math.min(betUnit * betMult, br > 0 ? br : betUnit);
+      br = apply(br, r, bet);
+      if (r === 'bj' || r === 'win') {
+        if (seq.length <= 2) seq = [];
+        else { seq.shift(); seq.pop(); }
+      } else if (r === 'loss') {
+        seq.push(betMult);
+      }
+      h.push(br);
+    }
+    return h;
+  }
   return [
-    { label: 'フラット（基準）', color: '#94a3b8', data: simFlat(),        dash: true,  risk: '最低', riskColor: '#4ade80',
+    { label: 'フラット（基準）',        color: '#94a3b8', data: simFlat(),        dash: true,  risk: '最低',   riskColor: '#4ade80',
       desc: '毎回同じ額を賭ける。最も安全で長期向き。' },
-    { label: 'パーレー(Paroli)', color: '#4ade80', data: simParoli(),      dash: false, risk: '低〜中', riskColor: '#86efac',
+    { label: 'パーレー(Paroli)',        color: '#4ade80', data: simParoli(),      dash: false, risk: '低〜中', riskColor: '#86efac',
       desc: '勝ったら倍、3連勝でリセット。連勝で稼ぎ、負けは最小。' },
-    { label: '1-3-2-6',         color: '#f59e0b', data: sim1326(),        dash: false, risk: '中', riskColor: '#fbbf24',
+    { label: 'グランベール(1-3-2-6)',   color: '#f59e0b', data: sim1326(),        dash: false, risk: '中',     riskColor: '#fbbf24',
       desc: '4段階の賭け増し法。4連勝で12倍、途中負けでも損失限定。' },
-    { label: "D'Alembert",      color: '#60a5fa', data: simDAlembert(),   dash: false, risk: '中', riskColor: '#fbbf24',
+    { label: "D'Alembert",             color: '#60a5fa', data: simDAlembert(),   dash: false, risk: '中',     riskColor: '#fbbf24',
       desc: '負け+1単位・勝ち-1単位。緩やかな調整で長期収支を安定。' },
-    { label: 'マーチンゲール',   color: '#f87171', data: simMartingale(),  dash: false, risk: '非常に高', riskColor: '#ef4444',
+    { label: 'マーチンゲール',          color: '#f87171', data: simMartingale(),  dash: false, risk: '非常に高', riskColor: '#ef4444',
       desc: '連敗するたびに2倍。短期回収力は高いが資金枯渇リスク大。' },
+    { label: 'フィボナッチ',            color: '#c084fc', data: simFibonacci(),   dash: false, risk: '中〜高', riskColor: '#e879f9',
+      desc: '連敗でフィボナッチ数列に沿ってベット増加。勝ちで2段階戻る。' },
+    { label: 'ラブシェール',            color: '#fb923c', data: simLabouchere(),  dash: false, risk: '中〜高', riskColor: '#fdba74',
+      desc: 'キャンセレーション法。配列を完了するたびに一定の利益。' },
   ];
 }
 
@@ -1981,15 +2016,14 @@ const BETTING_STRATEGIES_INFO = [
     chartColor: '#4ade80',
   },
   {
-    icon: '🎯', name: '1-3-2-6法', risk: '中', riskColor: '#fbbf24',
+    icon: '🎯', name: 'グランベール法（1-3-2-6法）', risk: '中', riskColor: '#fbbf24',
     tagline: '4連勝で最大の利益、途中負けで損失限定',
-    desc: 'ベット額を「1→3→2→6」の順に増やし、勝ち続けるか負けたらリセット。4連勝すると12ユニットの利益になる一方、どのタイミングで負けても損失は1〜2ユニットに収まるよう設計されています。',
+    desc: 'ベット額を「1→3→2→6」の順に増やし、勝ち続けるか負けたらリセット。4連勝すると12ユニットの利益になる一方、どのタイミングで負けても損失は1〜2ユニットに収まるよう設計されています。「グランベール法」または「1-3-2-6法」とも呼ばれます。',
     pros: ['4連勝で12倍の利益', '途中負けの損失を設計で限定', '短期決戦向き'],
     cons: ['4連勝は確率的に稀', '2〜3ステップで負けるとほぼ±0かマイナス'],
     seqLabel: '1→3→2→6（連勝毎に進む）',
     seq: ['1U: ¥500', '3U: ¥1,500', '2U: ¥1,000', '6U: ¥3,000', '負→¥500'],
     seqNote: '4連勝: +¥6,000（フラットの3倍）',
-    // 段階的上昇、時々急落してリセット
     chartData: [0, -5, 0, 5, 20, 30, -5, -10, -5, 0, 15, 25, -10, -5, 0],
     chartColor: '#f59e0b',
   },
@@ -2015,9 +2049,32 @@ const BETTING_STRATEGIES_INFO = [
     seqLabel: '負け→2倍、勝ち→リセット',
     seq: ['¥500', '負→¥1,000', '負→¥2,000', '負→¥4,000', '勝→+¥500'],
     seqNote: '4連敗後に1勝してもトータル+¥500のみ',
-    // 深い谷、その後急回復（ドラマチック）
     chartData: [0, 5, 0, -10, -25, -55, 45, 40, 30, 20, 10, 0, -30, 55, 50],
     chartColor: '#f87171',
+  },
+  {
+    icon: '🌀', name: 'フィボナッチ法', risk: '中〜高', riskColor: '#e879f9',
+    tagline: '黄金比の数列でベット管理。マーチンより穏やかな回収',
+    desc: '「1, 1, 2, 3, 5, 8, 13…」というフィボナッチ数列に従ってベットを増減させます。連敗するとひとつ進み、勝つと2段階戻ります。マーチンゲールより増加が緩やかですが、長い連敗で大きなベットになります。',
+    pros: ['マーチンより増加が穏やか', '連勝時に素早く損失回収', '自然な数列なので覚えやすい'],
+    cons: ['長い連敗で高額ベットになる', '回収に複数の勝ちが必要', '期待値はやはりマイナス'],
+    seqLabel: '負け→次の数へ、勝ち→2段階戻る',
+    seq: ['1U: ¥500', '負→1U: ¥500', '負→2U: ¥1,000', '負→3U: ¥1,500', '勝→1U: ¥500'],
+    seqNote: 'シーケンス: 1→1→2→3→5→8→13…',
+    chartData: [0, -5, -10, -20, -35, -25, -10, 5, -5, -15, 0, 15, 10, 20, 25],
+    chartColor: '#c084fc',
+  },
+  {
+    icon: '📋', name: 'ラブシェール法（キャンセレーション法）', risk: '中〜高', riskColor: '#fdba74',
+    tagline: '数列を完了するたびに固定の利益。柔軟性が高い',
+    desc: '数列（例：1-2-3-4）を作り、先頭と末尾の合計をベット。勝てば両端を消し、負ければ賭け額を末尾に追加。数列を全部消せば設計通りの利益が確定します。柔軟にカスタマイズできるのが特徴です。',
+    pros: ['数列完了で確定利益', '数列を自分でカスタマイズ可能', 'どこで止めても損失把握しやすい'],
+    cons: ['連敗で数列が長くなりベット増大', 'システムが比較的複雑', '数列が崩れると回収が難しい'],
+    seqLabel: '数列[1,2,3,4]→先頭+末尾をベット',
+    seq: ['[1,2,3,4] →¥2,500', '勝→[2,3]→¥2,500', '勝→[]→完了!', '負→[1,2,3,4,5]', '→¥3,000'],
+    seqNote: '数列[1,2,3,4]完了で+¥5,000確定',
+    chartData: [0, -10, 0, 10, 20, 10, -15, -25, -10, 5, 20, 10, 25, 15, 30],
+    chartColor: '#fb923c',
   },
 ];
 
@@ -2105,7 +2162,7 @@ function renderBettingGuide() {
 }
 
 const SIM_STRATEGIES = [
-  'フラット（基準）', 'パーレー(Paroli)', '1-3-2-6', "D'Alembert", 'マーチンゲール'
+  'フラット（基準）', 'パーレー(Paroli)', 'グランベール(1-3-2-6)', "D'Alembert", 'マーチンゲール', 'フィボナッチ', 'ラブシェール'
 ];
 
 let simCfg = { strategy: 'フラット（基準）', hands: 50, initial: 10000, betUnit: 500 };
@@ -2360,7 +2417,7 @@ function runAllPatternsSim() {
           const p90       = finals[Math.floor(0.90 * (TRIALS - 1))];
           const roi       = (mean - initial) / initial * 100;
           combos.push({ strategy: strat, initial, bet, mean, profitPct, p10, p90, roi,
-                        riskColor: SIM_STRATEGIES.indexOf(strat) === 4 ? '#f87171' : null });
+                        riskColor: strat === 'マーチンゲール' ? '#f87171' : null });
         });
       }
     }

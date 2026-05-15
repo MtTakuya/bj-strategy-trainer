@@ -1942,8 +1942,8 @@ function renderSimMode() {
       <div class="info-card" style="margin-bottom:12px">
         <div class="info-ttl">掛け方戦略</div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          ${SIM_STRATEGIES.map(s => `
-            <button onclick="simSetStrategy('${s}')" id="simst-${s.replace(/[^a-zA-Z0-9]/g,'_')}"
+          ${SIM_STRATEGIES.map((s, i) => `
+            <button onclick="simSetStrategy(${i})" id="simst-${i}"
               class="btn ${c.strategy===s?'btn-primary':'btn-secondary'}"
               style="text-align:left;font-size:13px;padding:10px 14px">
               ${s}
@@ -2000,7 +2000,7 @@ function renderSimMode() {
     </div>`;
 }
 
-function simSetStrategy(s) { simCfg.strategy = s; renderSimMode(); }
+function simSetStrategy(i) { simCfg.strategy = SIM_STRATEGIES[i]; renderSimMode(); }
 function simSetHands(n)    { simCfg.hands    = n; renderSimMode(); }
 function simSetInitial(v)  { simCfg.initial  = v; renderSimMode(); }
 function simSetBet(v)      { simCfg.betUnit  = v; renderSimMode(); }

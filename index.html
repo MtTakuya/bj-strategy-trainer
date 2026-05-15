@@ -1995,6 +1995,9 @@ function renderSimMode() {
         <button class="btn btn-primary" style="font-size:16px;padding:16px" onclick="runSimulation()">
           ▶ シミュレート実行（1,000回）
         </button>
+        <button class="btn btn-secondary" style="font-size:14px;padding:14px;color:#60a5fa;border-color:rgba(96,165,250,.35)" onclick="runAllPatternsSim()">
+          🔢 全パターン比較（5戦略×4資金×4BET）
+        </button>
       </div>
       <div class="disclaimer">確率モデルによる推定。実際の結果とは異なります。</div>
     </div>`;
@@ -2124,6 +2127,175 @@ function runSimulation() {
         <div class="disclaimer">確率モデルによる推定（勝率約42.5%・プッシュ約9%）。実際の結果とは異なります。</div>
       </div>`;
   }, 50);
+}
+
+// ── All-Pattern Simulation ────────────────────────────────────────
+const SIM_INITIALS = [5000, 10000, 20000, 50000];
+const SIM_BETS     = [100, 500, 1000, 2000];
+
+let allPatternResults = null;   // cache
+let allPatternSort    = 'roi';  // 'roi' | 'profit' | 'p10'
+let allPatternFilter  = '';     // '' = all, or strategy label
+
+function runAllPatternsSim() {
+  const { hands } = simCfg;
+  const TRIALS = 500;
+
+  $app().innerHTML = `
+    <div class="screen" style="align-items:center;justify-content:center;display:flex;flex-direction:column;min-height:60vh">
+      <div style="font-size:32px;margin-bottom:12px">⚙️</div>
+      <div style="font-size:15px;font-weight:700">全パターン計算中…</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">
+        80パターン × ${TRIALS}回試行 (${hands}ハンド)
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">しばらくお待ちください</div>
+    </div>`;
+
+  setTimeout(() => {
+    const combos = [];
+
+    for (const initial of SIM_INITIALS) {
+      for (const bet of SIM_BETS) {
+        const stratFinals = SIM_STRATEGIES.map(() => []);
+
+        for (let t = 0; t < TRIALS; t++) {
+          const handResults = Array.from({ length: hands }, simDrawHand);
+          const series = simulateBettingStrategies(handResults, initial, bet);
+          series.forEach((s, i) => stratFinals[i].push(s.data[s.data.length - 1]));
+        }
+
+        SIM_STRATEGIES.forEach((strat, i) => {
+          const finals = [...stratFinals[i]].sort((a, b) => a - b);
+          const mean      = finals.reduce((s, v) => s + v, 0) / TRIALS;
+          const profitPct = finals.filter(v => v > initial).length / TRIALS * 100;
+          const p10       = finals[Math.floor(0.10 * (TRIALS - 1))];
+          const p90       = finals[Math.floor(0.90 * (TRIALS - 1))];
+          const roi       = (mean - initial) / initial * 100;
+          combos.push({ strategy: strat, initial, bet, mean, profitPct, p10, p90, roi,
+                        riskColor: SIM_STRATEGIES.indexOf(strat) === 4 ? '#f87171' : null });
+        });
+      }
+    }
+
+    allPatternResults = { combos, hands, trials: TRIALS };
+    allPatternSort   = 'roi';
+    allPatternFilter = '';
+    renderAllPatternResults();
+  }, 50);
+}
+
+function renderAllPatternResults() {
+  const { combos, hands, trials } = allPatternResults;
+  const sort   = allPatternSort;
+  const filter = allPatternFilter;
+
+  const sortFn = {
+    roi:    (a, b) => b.roi     - a.roi,
+    profit: (a, b) => b.profitPct - a.profitPct,
+    p10:    (a, b) => b.p10     - a.p10,
+  }[sort] || ((a, b) => b.roi - a.roi);
+
+  const filtered = combos.filter(c => !filter || c.strategy === filter).sort(sortFn);
+
+  const medal = i => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
+  const sortBtn = (key, lbl) =>
+    `<button onclick="allPatternSetSort('${key}')" style="padding:6px 10px;border-radius:8px;font-size:11px;font-weight:700;border:1px solid ${sort===key?'var(--gold)':'var(--border)'};background:${sort===key?'rgba(201,162,39,.15)':'var(--surface2)'};color:${sort===key?'var(--gold)':'var(--muted)'};cursor:pointer">${lbl}</button>`;
+
+  const fmtV = v => v >= 1000 || v <= -1000
+    ? (v >= 0 ? '+' : '') + (v/1000).toFixed(1) + 'k'
+    : (v >= 0 ? '+' : '') + Math.round(v).toLocaleString();
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderSimMode()">← 戻る</button>
+        <span style="font-size:13px;font-weight:800;color:#60a5fa">全パターン比較</span>
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">ホーム</button>
+      </div>
+
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+        ${hands}ハンド × ${trials}回試行 / 80パターン
+      </div>
+
+      <!-- 並び替え -->
+      <div style="margin-bottom:10px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px">並び替え</div>
+        <div style="display:flex;gap:6px">
+          ${sortBtn('roi',    '期待ROI')}
+          ${sortBtn('profit', '黒字確率')}
+          ${sortBtn('p10',    '最悪10%')}
+        </div>
+      </div>
+
+      <!-- 戦略フィルター -->
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:5px">戦略フィルター</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <button onclick="allPatternSetFilter('')" style="padding:4px 8px;border-radius:100px;font-size:10px;font-weight:700;border:1px solid ${!filter?'var(--gold)':'var(--border)'};background:${!filter?'rgba(201,162,39,.12)':'var(--surface2)'};color:${!filter?'var(--gold)':'var(--muted)'};cursor:pointer">全て</button>
+          ${SIM_STRATEGIES.map((s, si) => `
+            <button onclick="allPatternSetFilter(${si})" style="padding:4px 8px;border-radius:100px;font-size:10px;font-weight:700;border:1px solid ${filter===s?'var(--gold)':'var(--border)'};background:${filter===s?'rgba(201,162,39,.12)':'var(--surface2)'};color:${filter===s?'var(--gold)':'var(--muted)'};cursor:pointer">${s}</button>`).join('')}
+        </div>
+      </div>
+
+      <!-- 結果リスト -->
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${filtered.map((c, i) => {
+          const dc = c.roi >= 0 ? '#4ade80' : '#f87171';
+          const p10c = c.p10 >= c.initial ? '#4ade80' : '#f87171';
+          const isMartingale = c.strategy.includes('マーチン');
+          return `
+          <div style="background:${i<3?'rgba(201,162,39,.06)':'rgba(255,255,255,.03)'};border:1px solid ${i===0?'rgba(201,162,39,.3)':isMartingale?'rgba(248,113,113,.15)':'rgba(255,255,255,.07)'};border-radius:12px;padding:10px 12px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-size:16px;min-width:24px;text-align:center">${medal(i)}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;font-weight:800;color:${i===0?'var(--gold)':'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.strategy}</div>
+                <div style="font-size:10px;color:var(--muted)">¥${c.initial.toLocaleString()} スタート / BET ¥${c.bet.toLocaleString()}</div>
+              </div>
+              <div style="text-align:right;white-space:nowrap">
+                <div style="font-size:14px;font-weight:900;color:${dc}">ROI ${c.roi>=0?'+':''}${c.roi.toFixed(1)}%</div>
+                <div style="font-size:10px;color:var(--muted)">期待値 ¥${fmtV(c.mean - c.initial)}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,.05)">
+              <div style="flex:1;text-align:center">
+                <div style="font-size:9px;color:var(--muted)">黒字確率</div>
+                <div style="font-size:12px;font-weight:800;color:${c.profitPct>=50?'#4ade80':'#f87171'}">${c.profitPct.toFixed(0)}%</div>
+              </div>
+              <div style="flex:1;text-align:center">
+                <div style="font-size:9px;color:var(--muted)">最悪10%</div>
+                <div style="font-size:12px;font-weight:800;color:${p10c}">¥${fmtV(c.p10 - c.initial)}</div>
+              </div>
+              <div style="flex:1;text-align:center">
+                <div style="font-size:9px;color:var(--muted)">最良10%</div>
+                <div style="font-size:12px;font-weight:800;color:#4ade80">¥${fmtV(c.p90 - c.initial)}</div>
+              </div>
+              <div style="flex:1;text-align:center">
+                <div style="font-size:9px;color:var(--muted)">BET比率</div>
+                <div style="font-size:12px;font-weight:800;color:var(--muted)">${(c.bet/c.initial*100).toFixed(1)}%</div>
+              </div>
+            </div>
+            ${isMartingale?`<div style="margin-top:4px;font-size:9px;color:#f87171;background:rgba(248,113,113,.08);border-radius:4px;padding:3px 7px">⚠️ 長期では資金枯渇リスク</div>`:''}
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div style="margin-top:12px" class="btn-stack">
+        <button class="btn btn-secondary" onclick="runAllPatternsSim()">🔄 再計算</button>
+        <button class="btn btn-ghost" onclick="renderSimMode()">設定に戻る</button>
+      </div>
+      <div class="disclaimer">確率モデルによる推定。実際の結果とは異なります。</div>
+    </div>`;
+}
+
+function allPatternSetSort(key) {
+  allPatternSort = key;
+  renderAllPatternResults();
+}
+
+function allPatternSetFilter(idx) {
+  // idx: '' = 全て, 数値 = SIM_STRATEGIES のインデックス
+  allPatternFilter = idx === '' ? '' : SIM_STRATEGIES[idx];
+  renderAllPatternResults();
 }
 
 // ── Bankroll SVG Chart ────────────────────────────────────────────

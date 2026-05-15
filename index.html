@@ -1791,9 +1791,27 @@ function renderGameSummary() {
   const INITIAL = 10000;
   const finalBR  = gm.bankroll;
   const profit   = finalBR - INITIAL;
-  const profitPct= Math.round(profit / INITIAL * 100);
   const profitColor = profit > 0 ? '#4ade80' : profit < 0 ? '#f87171' : 'var(--muted)';
-  const advice   = getBettingAdvice(gm.actualResults, finalBR, INITIAL);
+
+  // ユニット損益: 何ベット分得た/失ったか（カジノ標準指標）
+  const units   = profit / gm.betUnit;
+  // 期待値/ハンド: 1ハンドあたり平均損益
+  const evHand  = total > 0 ? profit / total : 0;
+  // 収益率 (ROI): 初期資金に対する損益率
+  const roi     = profit / INITIAL * 100;
+  // 実質勝率: 引き分けを除いた「勝負がついたハンド」だけの勝率
+  const netWR   = (aW + aL) > 0 ? Math.round(aW / (aW + aL) * 100) : 0;
+
+  // 完璧手との比較（perfResults は1ユニットフラットベット推定）
+  const perfUnits = pW - pL;
+  const perfRoi   = (perfUnits * gm.betUnit) / INITIAL * 100;
+  const perfNetWR = (pW + pL) > 0 ? Math.round(pW / (pW + pL) * 100) : 0;
+  const unitDiff  = units - perfUnits;
+
+  const col  = v => v > 0 ? '#4ade80' : v < 0 ? '#f87171' : 'var(--muted)';
+  const sign = v => v > 0 ? '+' : '';
+
+  const advice    = getBettingAdvice(gm.actualResults, finalBR, INITIAL);
   const riskColor = { '最低':'#4ade80', '低':'#86efac', '低〜中':'#fbbf24', '中':'#f97316', '高':'#f87171', '非常に高':'#ef4444' };
 
   $app().innerHTML = `
@@ -1833,19 +1851,72 @@ function renderGameSummary() {
         ${renderBankrollChart(gm.bankrollHistory, INITIAL)}
       </div>
 
-      <!-- ── 勝敗・ストラテジー ── -->
-      <div class="stats-grid" style="margin-bottom:12px">
-        <div class="stat-box">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">あなたの勝率</div>
-          <div style="font-size:32px;font-weight:900;color:var(--gold)">${aR}%</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">${aW}勝 ${aL}敗 ${aP}分</div>
+      <!-- ── 主要指標 4ボックス ── -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">パフォーマンス指標</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+          <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:3px">ユニット損益</div>
+            <div style="font-size:26px;font-weight:900;color:${col(units)}">${sign(units)}${units.toFixed(1)}<span style="font-size:14px">U</span></div>
+            <div style="font-size:10px;color:var(--muted)">1U = ¥${gm.betUnit.toLocaleString()}</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:3px">期待値/ハンド</div>
+            <div style="font-size:26px;font-weight:900;color:${col(evHand)}">${sign(evHand)}¥${Math.round(evHand)}</div>
+            <div style="font-size:10px;color:var(--muted)">1ハンドの平均損益</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:3px">収益率 (ROI)</div>
+            <div style="font-size:26px;font-weight:900;color:${col(roi)}">${sign(roi)}${roi.toFixed(1)}<span style="font-size:14px">%</span></div>
+            <div style="font-size:10px;color:var(--muted)">初期¥${INITIAL.toLocaleString()}に対して</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:3px">実質勝率</div>
+            <div style="font-size:26px;font-weight:900;color:var(--gold)">${netWR}<span style="font-size:14px">%</span></div>
+            <div style="font-size:10px;color:var(--muted)">引き分け除く</div>
+          </div>
         </div>
-        <div class="stat-box">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">完璧手なら</div>
-          <div style="font-size:32px;font-weight:900;color:${pR>=aR?'#4ade80':'#f87171'}">${pR}%</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">${pW}勝 ${pL}敗 ${pP}分</div>
+        <!-- 勝/負/分 内訳バー -->
+        <div style="display:flex;gap:5px;margin-bottom:6px">
+          <div style="flex:${aW};min-width:${aW>0?'4px':'0'};background:#4ade8066;border-radius:4px 0 0 4px;padding:6px 0;text-align:center">
+            ${aW>0?`<span style="font-size:11px;font-weight:700;color:#4ade80">${aW}勝</span>`:''}
+          </div>
+          <div style="flex:${aP};min-width:${aP>0?'4px':'0'};background:#fbbf2444;padding:6px 0;text-align:center">
+            ${aP>0?`<span style="font-size:11px;font-weight:700;color:#fbbf24">${aP}分</span>`:''}
+          </div>
+          <div style="flex:${aL};min-width:${aL>0?'4px':'0'};background:#f8717166;border-radius:0 4px 4px 0;padding:6px 0;text-align:center">
+            ${aL>0?`<span style="font-size:11px;font-weight:700;color:#f87171">${aL}敗</span>`:''}
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);text-align:right">計${total}ハンド</div>
+      </div>
+
+      <!-- ── 完璧手との比較 ── -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">完璧なベーシックストラテジーとの比較</div>
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-bottom:10px">
+          <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:var(--muted)">あなた</div>
+            <div style="font-size:20px;font-weight:900;color:${col(units)}">${sign(units)}${units.toFixed(1)}U</div>
+            <div style="font-size:10px;color:var(--muted)">実質勝率 ${netWR}%</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:var(--muted)">差</div>
+            <div style="font-size:16px;font-weight:900;color:${col(unitDiff)}">${sign(unitDiff)}${unitDiff.toFixed(1)}U</div>
+          </div>
+          <div style="background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:10px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:var(--muted)">完璧手（推定）</div>
+            <div style="font-size:20px;font-weight:900;color:${col(perfUnits)}">${sign(perfUnits)}${perfUnits.toFixed(1)}U</div>
+            <div style="font-size:10px;color:var(--muted)">実質勝率 ${perfNetWR}%</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.6">
+          ※ 完璧手の推定値はBJ 1.5倍・ダブル/スプリットを考慮しない概算。
+          理論上のハウスエッジは約0.5%（EV ≈ −¥${Math.round(gm.betUnit*0.005)}/ハンド）。
         </div>
       </div>
+
+      <!-- ── ストラテジー正解率 ── -->
       <div class="info-card" style="margin-bottom:12px">
         <div class="info-ttl">ストラテジー正解率</div>
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">

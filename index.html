@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BJ Trainer">
+  <meta name="theme-color" content="#0a0f0d">
+  <title>BJ Strategy Trainer</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+    }
+
+    :root {
+      --bg:        #0a0f0d;
+      --surface:   #111a14;
+      --surface2:  #19251c;
+      --border:    #2a3d2e;
+      --gold:      #c9a227;
+      --gold-lt:   #e8c547;
+      --text:      #f0ede8;
+      --muted:     #7a8a7d;
+      --green:     #22c55e;
+      --red:       #ef4444;
+      --safe-top:    env(safe-area-inset-top,    0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html { height: 100%; background: var(--bg); }
+
+    body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior: none;
+    }
+
+    #app {
+      min-height: 100%;
+      padding-top:    var(--safe-top);
+      padding-bottom: var(--safe-bottom);
+    }
+
+    /* ── Layout ── */
+    .screen {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 20px 16px 48px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Buttons ── */
+    button { font-family: inherit; cursor: pointer; outline: none; border: none; }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 56px;
+      padding: 14px 20px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      transition: opacity .1s, transform .1s;
+    }
+    .btn:active { opacity: .78; transform: scale(.975); }
+
+    .btn-primary  { background: linear-gradient(135deg,#c9a227,#e0b835); color: #080800; }
+    .btn-secondary{ background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-ghost    { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-danger   { background: rgba(239,68,68,.12); color: #f87171; border: 1px solid rgba(239,68,68,.25); }
+    .btn-sm       { min-height: 40px; padding: 8px 16px; font-size: 14px; border-radius: 10px; width: auto; }
+
+    .btn-stack { display: flex; flex-direction: column; gap: 10px; }
+
+    /* ── Badges ── */
+    .chip {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .chip-hard { background: rgba(239,68,68,.2);   color: #f87171; }
+    .chip-soft { background: rgba(59,130,246,.2);  color: #60a5fa; }
+    .chip-pair { background: rgba(139,92,246,.2);  color: #a78bfa; }
+
+    /* ── Home ── */
+    .logo { text-align: center; padding: 28px 0 10px; }
+    .logo-icon  { font-size: 44px; margin-bottom: 8px; }
+    .logo-title {
+      font-size: 26px; font-weight: 900; letter-spacing: -.01em;
+      background: linear-gradient(135deg,#c9a227 0%,#e8c547 50%,#c9a227 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .logo-sub { font-size: 12px; color: var(--muted); letter-spacing: .08em; margin-top: 4px; }
+
+    .stats-pills {
+      display: flex; justify-content: center; gap: 24px;
+      margin-top: 14px; padding: 12px 0;
+    }
+    .pill      { text-align: center; }
+    .pill-val  { font-size: 22px; font-weight: 800; color: var(--gold); }
+    .pill-lbl  { font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+
+    .section { margin-top: 24px; }
+    .sec-lbl {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .12em; margin-bottom: 10px;
+    }
+
+    /* ── Quiz topbar & progress ── */
+    .topbar {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 8px;
+    }
+    .prog-wrap {
+      height: 3px; background: var(--border); border-radius: 2px;
+      margin-bottom: 28px; overflow: hidden;
+    }
+    .prog-fill {
+      height: 100%;
+      background: linear-gradient(90deg,var(--gold),var(--gold-lt));
+      border-radius: 2px; transition: width .35s ease;
+    }
+    .prog-txt { font-size: 14px; font-weight: 700; color: var(--muted); }
+
+    /* ── Cards ── */
+    .q-cards {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 12px; margin-bottom: 28px;
+    }
+    .card-lbl {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .12em;
+      margin-bottom: 6px; text-align: center;
+    }
+    .playing-card {
+      background: #fff; border-radius: 12px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      box-shadow: 0 6px 24px rgba(0,0,0,.5);
+      user-select: none; width: 80px; height: 108px;
+    }
+    .card-num  { font-size: 40px; font-weight: 900; line-height: 1; }
+    .card-suit { font-size: 18px; line-height: 1; margin-top: 2px; }
+    .suit-red  { color: #dc2626; }
+    .suit-blk  { color: #1a1a1a; }
+
+    .hand-card {
+      background: var(--surface2); border: 2px solid var(--border);
+      border-radius: 16px; padding: 20px 40px; text-align: center;
+    }
+    .hand-name { font-size: 30px; font-weight: 900; letter-spacing: -.02em; }
+    .vs-txt    { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .1em; }
+
+    /* ── Action buttons ── */
+    .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+
+    .act-btn {
+      min-height: 64px; border-radius: 14px;
+      font-size: 20px; font-weight: 800;
+      border: 2px solid transparent;
+      transition: opacity .1s, transform .1s, background-color .2s, border-color .2s;
+    }
+    .act-btn:active:not(:disabled) { opacity: .78; transform: scale(.96); }
+    .act-btn:disabled { cursor: default; }
+
+    .btn-hit    { background: rgba(59,130,246,.15); color: #60a5fa; border-color: rgba(59,130,246,.3); }
+    .btn-stand  { background: rgba(245,158,11,.15); color: #fbbf24; border-color: rgba(245,158,11,.3); }
+    .btn-double { background: rgba(239,68,68,.15);  color: #f87171; border-color: rgba(239,68,68,.3);  }
+    .btn-split  { background: rgba(139,92,246,.15); color: #a78bfa; border-color: rgba(139,92,246,.3); }
+
+    .act-btn.is-correct { background: rgba(34,197,94,.2)  !important; border-color: #22c55e !important; color: #4ade80 !important; }
+    .act-btn.is-wrong   { background: rgba(239,68,68,.2)  !important; border-color: #ef4444 !important; color: #f87171 !important; }
+
+    /* ── Feedback ── */
+    .feedback {
+      border-radius: 14px; padding: 16px 20px;
+      margin-bottom: 14px;
+      animation: fadeUp .25s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0);   }
+    }
+    .fb-ok  { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.35); }
+    .fb-ng  { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.35); }
+    .fb-hd  { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
+    .fb-ok .fb-hd { color: #4ade80; }
+    .fb-ng .fb-hd { color: #f87171; }
+    .fb-ans { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .fb-exp { font-size: 13px; color: var(--muted); line-height: 1.7; }
+
+    /* ── Result ── */
+    .score-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 32px 24px;
+      text-align: center; margin-bottom: 20px;
+    }
+    .score-frac {
+      font-size: 64px; font-weight: 900; line-height: 1;
+      background: linear-gradient(135deg,var(--gold),var(--gold-lt));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .score-pct { font-size: 28px; font-weight: 800; color: var(--muted); margin-top: 4px; }
+    .score-msg { font-size: 15px; color: var(--muted); margin-top: 10px; }
+
+    /* ── Stats ── */
+    .stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 12px;
+    }
+    .stat-box {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px; text-align: center;
+    }
+    .stat-val { font-size: 34px; font-weight: 900; color: var(--gold); line-height: 1; }
+    .stat-lbl { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: .06em; }
+
+    .info-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px 18px; margin-bottom: 12px;
+    }
+    .info-ttl {
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .1em; margin-bottom: 12px;
+    }
+    .cat-row {
+      display: flex; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid var(--border); gap: 10px;
+    }
+    .cat-row:last-child { border-bottom: none; }
+    .cat-name  { flex: 0 0 52px; }
+    .cat-cnt   { flex: 0 0 58px; font-size: 13px; color: var(--muted); }
+    .bar-bg    { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .bar-fill  { height: 100%; background: var(--gold); border-radius: 3px; }
+    .cat-pct   { flex: 0 0 42px; text-align: right; font-size: 14px; font-weight: 700; }
+
+    .wrong-list { max-height: 240px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .wrong-row  {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px;
+    }
+    .wrong-row:last-child { border-bottom: none; }
+    .wrong-hand { flex: 1; }
+    .wrong-act  { font-weight: 700; font-size: 13px; }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed;
+      bottom: calc(var(--safe-bottom) + 32px);
+      left: 50%; transform: translateX(-50%);
+      background: var(--surface2); border: 1px solid var(--border);
+      padding: 12px 24px; border-radius: 100px;
+      font-size: 14px; font-weight: 600; color: var(--text);
+      white-space: nowrap; z-index: 9999; pointer-events: none;
+      animation: toastIn .25s ease;
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0);   }
+    }
+
+    /* ── Footer ── */
+    .disclaimer {
+      margin-top: auto; padding-top: 28px;
+      font-size: 11px; color: var(--muted);
+      text-align: center; line-height: 1.75;
+    }
+
+    /* ── Empty ── */
+    .empty { text-align: center; padding: 24px 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════
+//  STRATEGY TABLES
+//  横軸 = DEALER_CARDS[i]（左から 2,3,4,5,6,7,8,9,10,A）
+//  raw: H=Hit  S=Stand  DD=Double  SP=Split
+// ═══════════════════════════════════════════════════════════════
+
+const DEALER_CARDS = ['2','3','4','5','6','7','8','9','10','A'];
+
+/**
+ * ハードハンド
+ * 画像表と1列ずつ対応（左:2 → 右:A）
+ */
+const HARD_TABLE = [
+  // hand      2      3      4      5      6      7      8      9      10     A
+  { hand:'8以下',  a:['H', 'H', 'H', 'H', 'H', 'H', 'H', 'H', 'H', 'H'] },
+  { hand:'9',      a:['H', 'DD','DD','DD','DD','H', 'H', 'H', 'H', 'H'] },
+  { hand:'10',     a:['DD','DD','DD','DD','DD','DD','DD','DD','H', 'H'] },
+  { hand:'11',     a:['DD','DD','DD','DD','DD','DD','DD','DD','DD','H'] },
+  { hand:'12',     a:['H', 'H', 'S', 'S', 'S', 'H', 'H', 'H', 'H', 'H'] },
+  { hand:'13',     a:['S', 'S', 'S', 'S', 'S', 'H', 'H', 'H', 'H', 'H'] },
+  { hand:'14',     a:['S', 'S', 'S', 'S', 'S', 'H', 'H', 'H', 'H', 'H'] },
+  { hand:'15',     a:['S', 'S', 'S', 'S', 'S', 'H', 'H', 'H', 'H', 'H'] },
+  { hand:'16',     a:['S', 'S', 'S', 'S', 'S', 'H', 'H', 'H', 'H', 'H'] },
+  { hand:'17〜',   a:['S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S'] },
+];
+
+/**
+ * ソフトハンド（Ace + X）
+ * 画像では「A+8、A+9、A+10」が1行だったが
+ * より良いクイズ体験のため A+8 / A+9 に分割（同じ答え）
+ * ※A+10 は事実上ブラックジャックなので省略
+ */
+const SOFT_TABLE = [
+  // hand      2      3      4      5      6      7      8      9      10     A
+  { hand:'A+9', a:['S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S'] },
+  { hand:'A+8', a:['S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S'] },
+  { hand:'A+7', a:['S', 'DD','DD','DD','DD','S', 'S', 'H', 'H', 'H'] },
+  { hand:'A+6', a:['H', 'DD','DD','DD','DD','H', 'H', 'H', 'H', 'H'] },
+  { hand:'A+5', a:['H', 'H', 'DD','DD','DD','H', 'H', 'H', 'H', 'H'] },
+  { hand:'A+4', a:['H', 'H', 'DD','DD','DD','H', 'H', 'H', 'H', 'H'] },
+  { hand:'A+3', a:['H', 'H', 'H', 'DD','DD','H', 'H', 'H', 'H', 'H'] },
+  { hand:'A+2', a:['H', 'H', 'H', 'DD','DD','H', 'H', 'H', 'H', 'H'] },
+];
+
+/**
+ * ペア（スプリット判断）
+ * ※4+4 は画像全セル H（全ヒット）  // TODO: 4+4 vs 5,6 は表によって SP になる場合あり。要確認。
+ */
+const PAIR_TABLE = [
+  // hand        2      3      4      5      6      7      8      9      10     A
+  { hand:'A+A',   a:['SP','SP','SP','SP','SP','SP','SP','SP','SP','SP'] },
+  { hand:'8+8',   a:['SP','SP','SP','SP','SP','SP','SP','SP','SP','SP'] },
+  { hand:'10+10', a:['S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S', 'S'] },
+  { hand:'9+9',   a:['SP','SP','SP','SP','SP','S', 'SP','SP','S', 'S'] },
+  { hand:'7+7',   a:['SP','SP','SP','SP','SP','SP','H', 'H', 'H', 'H'] },
+  { hand:'6+6',   a:['H', 'SP','SP','SP','SP','H', 'H', 'H', 'H', 'H'] },
+  { hand:'5+5',   a:['DD','DD','DD','DD','DD','DD','DD','DD','H', 'H'] },
+  { hand:'4+4',   a:['H', 'H', 'H', 'H', 'H', 'H', 'H', 'H', 'H', 'H'] }, // TODO: 画像で要確認
+  { hand:'3+3',   a:['H', 'H', 'SP','SP','SP','H', 'H', 'H', 'H', 'H'] },
+  { hand:'2+2',   a:['H', 'H', 'SP','SP','SP','H', 'H', 'H', 'H', 'H'] },
+];
+
+// ═══════════════════════════════════════════════════════════════
+//  QUESTION GENERATION
+// ═══════════════════════════════════════════════════════════════
+
+const ACTION_MAP = { H:'Hit', S:'Stand', DD:'Double', SP:'Split' };
+
+const SOFT_TOTAL = {
+  'A+2':13,'A+3':14,'A+4':15,'A+5':16,'A+6':17,'A+7':18,'A+8':19,'A+9':20
+};
+
+function makeExplanation(cat, hand, dc, action) {
+  const weak     = ['4','5','6'].includes(dc);
+  const moderate = ['2','3'].includes(dc);
+  const strong   = ['9','10','A'].includes(dc);
+
+  if (cat === 'Hard') {
+    const t = hand === '8以下' ? 'ハード8以下' : hand === '17〜' ? 'ハード17以上' : `ハード${hand}`;
+    if (action === 'Stand') {
+      if (weak)     return `${t} vs ${dc}：スタンド。ディーラー${dc}はバスト率が高い（4〜6）ので相手のミスを待ちましょう。`;
+      if (moderate) return `${t} vs ${dc}：スタンド。ディーラー${dc}はやや弱め。現状維持が最善です。`;
+      return `${t} vs ${dc}：スタンド。これ以上引かずに待ちましょう。`;
+    }
+    if (action === 'Hit') {
+      if (strong) return `${t} vs ${dc}：ヒット。ディーラー${dc}は強いため手札を改善する必要があります。`;
+      return `${t} vs ${dc}：ヒット。手札を強化しましょう。`;
+    }
+    if (action === 'Double') {
+      return `${t} vs ${dc}：ダブルダウン！強いポジションで賭け金を2倍にして期待値を最大化しましょう。`;
+    }
+  }
+
+  if (cat === 'Soft') {
+    const tot = SOFT_TOTAL[hand] ? `ソフト${SOFT_TOTAL[hand]}（${hand}）` : hand;
+    if (action === 'Stand') {
+      return `${tot} vs ${dc}：スタンド。十分に強い手札です。そのまま待ちましょう。`;
+    }
+    if (action === 'Hit') {
+      if (strong) return `${tot} vs ${dc}：ヒット。ディーラーが強いためソフトハンドを活かして改善しましょう。`;
+      return `${tot} vs ${dc}：ヒット。さらに強い手札を目指しましょう。`;
+    }
+    if (action === 'Double') {
+      return `${tot} vs ${dc}：ダブルダウン！ディーラーが弱くエースで柔軟に対応できるため、賭け金を2倍にできます。`;
+    }
+  }
+
+  if (cat === 'Pair') {
+    if (action === 'Split') {
+      if (hand === 'A+A')   return `エース×2は常にスプリット！それぞれソフト11として打てる最強のスタートになります。`;
+      if (hand === '8+8')   return `8+8=16は最悪の手。スプリットして2つの8から立て直しましょう。`;
+      if (hand === '9+9')   return `9+9 vs ${dc}：スプリット。2枚の9に分けることで18より高い期待値を得られます。`;
+      if (hand === '7+7')   return `7+7 vs ${dc}：スプリット。7から強いハンドを2つ作るチャンスです。`;
+      if (hand === '6+6')   return `6+6 vs ${dc}：スプリット。ディーラーが弱い（3〜6）ため積極的に分けましょう。`;
+      if (hand === '3+3')   return `3+3 vs ${dc}：スプリット。ディーラーが弱い（4〜6）ときはスプリットが有利です。`;
+      if (hand === '2+2')   return `2+2 vs ${dc}：スプリット。ディーラーが弱い（4〜6）ときはスプリットが有利です。`;
+      return `${hand} vs ${dc}：スプリット。2つのハンドに分けて有利な展開を目指しましょう。`;
+    }
+    if (action === 'Stand') {
+      if (hand === '10+10') return `10+10=20 は最強クラスのハンド。スプリットせずスタンドが正解です。`;
+      if (hand === '9+9')   return `9+9=18 vs ${dc}：スタンド。ディーラー${dc}に対しては18のままスタンドが最善です。`;
+      return `${hand} vs ${dc}：スタンド。現状維持が最善です。`;
+    }
+    if (action === 'Hit') {
+      return `${hand} vs ${dc}：ヒット。スプリットせずハードハンドとして手札を改善しましょう。`;
+    }
+    if (action === 'Double') {
+      if (hand === '5+5') return `5+5=10 vs ${dc}：ダブルダウン！5+5はスプリットせずハード10として扱い、ダブルダウンが最善です。`;
+      return `${hand} vs ${dc}：ダブルダウン。`;
+    }
+  }
+
+  return `${cat} ${hand} vs ディーラー${dc}：${action}が正解です。`;
+}
+
+let _id = 1;
+function buildQ(table, cat) {
+  const out = [];
+  for (const row of table) {
+    for (let i = 0; i < DEALER_CARDS.length; i++) {
+      const action = ACTION_MAP[row.a[i]];
+      out.push({
+        id: _id++,
+        playerHand:    row.hand,
+        dealerCard:    DEALER_CARDS[i],
+        correctAction: action,
+        category:      cat,
+        explanation:   makeExplanation(cat, row.hand, DEALER_CARDS[i], action),
+      });
+    }
+  }
+  return out;
+}
+
+const ALL_QUESTIONS = [
+  ...buildQ(HARD_TABLE, 'Hard'),
+  ...buildQ(SOFT_TABLE, 'Soft'),
+  ...buildQ(PAIR_TABLE, 'Pair'),
+];
+
+// ═══════════════════════════════════════════════════════════════
+//  LOCAL STORAGE
+// ═══════════════════════════════════════════════════════════════
+
+const STORAGE_KEY = 'bj_strategy_trainer_stats';
+
+function defaultStats() {
+  return {
+    totalAnswered: 0,
+    totalCorrect:  0,
+    byCategory: {
+      Hard: { answered: 0, correct: 0 },
+      Soft: { answered: 0, correct: 0 },
+      Pair: { answered: 0, correct: 0 },
+    },
+    wrongIds: [],
+  };
+}
+
+function loadStats() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultStats();
+    return Object.assign(defaultStats(), JSON.parse(raw));
+  } catch (_) { return defaultStats(); }
+}
+
+function saveStats(s) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_) {}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+
+const state = {
+  screen:         'home',
+  quizMode:       'all',
+  quizQuestions:  [],
+  currentIndex:   0,
+  answered:       false,
+  selectedAction: null,
+  sessionAnswers: [],
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function isRedCard(c) { return ['A','3','5','7','9'].includes(c); }
+function suitChar(c)  { return isRedCard(c) ? '♥' : '♠'; }
+
+function showToast(msg) {
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .3s';
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 350);
+  }, 2400);
+}
+
+function chipClass(cat) {
+  return { Hard: 'chip-hard', Soft: 'chip-soft', Pair: 'chip-pair' }[cat] || '';
+}
+
+const $app = () => document.getElementById('app');
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER: HOME
+// ═══════════════════════════════════════════════════════════════
+
+function renderHome() {
+  state.screen = 'home';
+  const s = loadStats();
+  const pct  = s.totalAnswered > 0 ? Math.round(s.totalCorrect / s.totalAnswered * 100) : null;
+  const weak = new Set(s.wrongIds).size;
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="logo">
+        <div class="logo-icon">🃏</div>
+        <div class="logo-title">BJ Strategy Trainer</div>
+        <div class="logo-sub">ブラックジャック ベーシックストラテジー練習</div>
+        ${pct !== null ? `
+          <div class="stats-pills">
+            <div class="pill"><div class="pill-val">${pct}%</div><div class="pill-lbl">正答率</div></div>
+            <div class="pill"><div class="pill-val">${s.totalAnswered}</div><div class="pill-lbl">総回答数</div></div>
+            <div class="pill"><div class="pill-val">${weak}</div><div class="pill-lbl">苦手問題</div></div>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="section">
+        <div class="sec-lbl">練習を始める</div>
+        <div class="btn-stack">
+          <button class="btn btn-primary" onclick="startQuiz('all')">🃏 10問テスト開始</button>
+          <button class="btn btn-secondary" onclick="startQuiz('weak')" ${weak===0?'style="opacity:.42"':''}>
+            🎯 苦手問題だけ練習
+            ${weak>0?`<span class="chip chip-hard" style="font-size:10px;margin-left:4px">${weak}問</span>`:''}
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-lbl">カテゴリ別練習</div>
+        <div class="btn-stack">
+          <button class="btn btn-secondary" onclick="startQuiz('hard')" style="color:#f87171">Hard だけ練習</button>
+          <button class="btn btn-secondary" onclick="startQuiz('soft')" style="color:#60a5fa">Soft だけ練習</button>
+          <button class="btn btn-secondary" onclick="startQuiz('pair')" style="color:#a78bfa">Pair だけ練習</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-lbl">成績・設定</div>
+        <div class="btn-stack">
+          <button class="btn btn-ghost" onclick="renderStats()">📊 成績を見る</button>
+          <button class="btn btn-danger" onclick="confirmReset()">🗑 成績リセット</button>
+        </div>
+      </div>
+
+      <div class="disclaimer">
+        一般的なベーシックストラテジー練習用です。<br>
+        カジノルールにより最適解が変わる場合があります。
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER: QUIZ
+// ═══════════════════════════════════════════════════════════════
+
+function startQuiz(mode) {
+  const s = loadStats();
+  let pool;
+
+  if (mode === 'weak') {
+    const ws = new Set(s.wrongIds);
+    pool = ALL_QUESTIONS.filter(q => ws.has(q.id));
+    if (pool.length === 0) { showToast('まだ苦手問題はありません 🎉'); return; }
+    pool = shuffle(pool).slice(0, 10);
+  } else if (mode === 'hard') {
+    pool = shuffle(ALL_QUESTIONS.filter(q => q.category === 'Hard')).slice(0, 10);
+  } else if (mode === 'soft') {
+    pool = shuffle(ALL_QUESTIONS.filter(q => q.category === 'Soft')).slice(0, 10);
+  } else if (mode === 'pair') {
+    pool = shuffle(ALL_QUESTIONS.filter(q => q.category === 'Pair')).slice(0, 10);
+  } else {
+    pool = shuffle(ALL_QUESTIONS).slice(0, 10);
+  }
+
+  state.quizMode      = mode;
+  state.quizQuestions = pool;
+  state.currentIndex  = 0;
+  state.sessionAnswers = [];
+  renderQuestion();
+}
+
+function renderQuestion() {
+  state.answered       = false;
+  state.selectedAction = null;
+  state.screen         = 'quiz';
+
+  const q     = state.quizQuestions[state.currentIndex];
+  const total = state.quizQuestions.length;
+  const cur   = state.currentIndex + 1;
+  const pct   = Math.round(cur / total * 100);
+  const red   = isRedCard(q.dealerCard);
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <span class="chip ${chipClass(q.category)}">${q.category}</span>
+        <span class="prog-txt">${cur} / ${total}</span>
+      </div>
+      <div class="prog-wrap"><div class="prog-fill" style="width:${pct}%"></div></div>
+
+      <div class="q-cards">
+        <div>
+          <div class="card-lbl">ディーラーのアップカード</div>
+          <div class="playing-card">
+            <div class="card-num" style="color:${red?'#dc2626':'#1a1a1a'}">${q.dealerCard}</div>
+            <div class="card-suit ${red?'suit-red':'suit-blk'}">${suitChar(q.dealerCard)}</div>
+          </div>
+        </div>
+        <div class="vs-txt">VS</div>
+        <div>
+          <div class="card-lbl">あなたの手札</div>
+          <div class="hand-card"><div class="hand-name">${q.playerHand}</div></div>
+        </div>
+      </div>
+
+      <div id="feedback" style="display:none"></div>
+
+      <div class="action-grid" id="actions">
+        <button class="act-btn btn-hit"    id="btn-Hit"    onclick="checkAnswer('Hit')">Hit</button>
+        <button class="act-btn btn-stand"  id="btn-Stand"  onclick="checkAnswer('Stand')">Stand</button>
+        <button class="act-btn btn-double" id="btn-Double" onclick="checkAnswer('Double')">Double</button>
+        <button class="act-btn btn-split"  id="btn-Split"  onclick="checkAnswer('Split')">Split</button>
+      </div>
+
+      <div id="next-area"></div>
+
+      <div class="disclaimer">
+        一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。
+      </div>
+    </div>
+  `;
+}
+
+function checkAnswer(action) {
+  if (state.answered) return;
+  state.answered       = true;
+  state.selectedAction = action;
+
+  const q         = state.quizQuestions[state.currentIndex];
+  const isCorrect = action === q.correctAction;
+
+  // Style buttons
+  ['Hit','Stand','Double','Split'].forEach(a => {
+    const btn = document.getElementById('btn-' + a);
+    if (!btn) return;
+    btn.disabled = true;
+    if (a === q.correctAction)       btn.classList.add('is-correct');
+    else if (a === action && !isCorrect) btn.classList.add('is-wrong');
+  });
+
+  // Save result
+  saveResult(q, isCorrect);
+  state.sessionAnswers.push({ questionId: q.id, correct: isCorrect });
+
+  // Feedback
+  const fb = document.getElementById('feedback');
+  fb.style.display = 'block';
+  fb.innerHTML = `
+    <div class="feedback ${isCorrect ? 'fb-ok' : 'fb-ng'}">
+      <div class="fb-hd">${isCorrect ? '✓ 正解！' : '✗ 不正解'}</div>
+      ${!isCorrect ? `<div class="fb-ans">正解：${q.correctAction}</div>` : ''}
+      <div class="fb-exp">${q.explanation}</div>
+    </div>
+  `;
+
+  // Next button
+  const isLast = state.currentIndex >= state.quizQuestions.length - 1;
+  document.getElementById('next-area').innerHTML = `
+    <button class="btn btn-primary" onclick="${isLast ? 'renderQuizComplete()' : 'nextQuestion()'}">
+      ${isLast ? '結果を見る →' : '次の問題 →'}
+    </button>
+  `;
+}
+
+function nextQuestion() {
+  state.currentIndex++;
+  renderQuestion();
+}
+
+function saveResult(q, isCorrect) {
+  const s = loadStats();
+  s.totalAnswered++;
+  if (isCorrect) s.totalCorrect++;
+  if (!s.byCategory[q.category]) s.byCategory[q.category] = { answered:0, correct:0 };
+  s.byCategory[q.category].answered++;
+  if (isCorrect) s.byCategory[q.category].correct++;
+  if (!isCorrect) {
+    if (!Array.isArray(s.wrongIds)) s.wrongIds = [];
+    if (!s.wrongIds.includes(q.id)) s.wrongIds.push(q.id);
+  }
+  saveStats(s);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER: QUIZ COMPLETE
+// ═══════════════════════════════════════════════════════════════
+
+function renderQuizComplete() {
+  state.screen = 'result';
+  const correct = state.sessionAnswers.filter(a => a.correct).length;
+  const total   = state.sessionAnswers.length;
+  const pct     = Math.round(correct / total * 100);
+
+  const wrongItems = state.sessionAnswers
+    .filter(a => !a.correct)
+    .map(a => ALL_QUESTIONS.find(q => q.id === a.questionId))
+    .filter(Boolean);
+
+  const msg = pct === 100 ? '完璧です！🏆'
+    : pct >= 80 ? 'よくできました！'
+    : pct >= 60 ? '引き続き練習しましょう！'
+    : '苦手問題を重点的に練習しよう！';
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar" style="justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+      </div>
+
+      <div class="score-card">
+        <div class="score-frac">${correct}<span style="font-size:32px;color:var(--muted)"> / ${total}</span></div>
+        <div class="score-pct">${pct}%</div>
+        <div class="score-msg">${msg}</div>
+      </div>
+
+      ${wrongItems.length > 0 ? `
+        <div class="info-card">
+          <div class="info-ttl">間違えた問題（${wrongItems.length}問）</div>
+          <div class="wrong-list">
+            ${wrongItems.map(q => `
+              <div class="wrong-row">
+                <span class="chip ${chipClass(q.category)}" style="font-size:10px">${q.category}</span>
+                <span class="wrong-hand">${q.playerHand} vs ${q.dealerCard}</span>
+                <span class="wrong-act" style="color:var(--green)">${q.correctAction}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : `<div style="text-align:center;color:var(--green);font-size:16px;font-weight:700;margin-bottom:20px">全問正解！完璧です 🏆</div>`}
+
+      <div class="btn-stack">
+        <button class="btn btn-primary"    onclick="startQuiz(state.quizMode)">もう一度</button>
+        <button class="btn btn-secondary"  onclick="startQuiz('weak')">苦手問題を練習</button>
+        <button class="btn btn-ghost"      onclick="renderHome()">ホームへ戻る</button>
+      </div>
+
+      <div class="disclaimer">
+        一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER: STATS
+// ═══════════════════════════════════════════════════════════════
+
+function renderStats() {
+  state.screen = 'stats';
+  const s      = loadStats();
+  const total  = s.totalAnswered;
+  const pct    = total > 0 ? Math.round(s.totalCorrect / total * 100) : 0;
+  const ws     = new Set(s.wrongIds || []);
+  const weak   = ALL_QUESTIONS.filter(q => ws.has(q.id));
+
+  const catRows = ['Hard','Soft','Pair'].map(cat => {
+    const c = s.byCategory[cat] || { answered:0, correct:0 };
+    const p = c.answered > 0 ? Math.round(c.correct / c.answered * 100) : 0;
+    return `
+      <div class="cat-row">
+        <span class="cat-name"><span class="chip ${chipClass(cat)}">${cat}</span></span>
+        <span class="cat-cnt">${c.correct}/${c.answered}</span>
+        <div class="bar-bg"><div class="bar-fill" style="width:${p}%"></div></div>
+        <span class="cat-pct">${p}%</span>
+      </div>
+    `;
+  }).join('');
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderHome()">← ホーム</button>
+        <span style="font-size:17px;font-weight:800;color:var(--gold)">成績</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-val">${total}</div>
+          <div class="stat-lbl">総回答数</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val">${pct}%</div>
+          <div class="stat-lbl">正答率</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val">${s.totalCorrect}</div>
+          <div class="stat-lbl">正解数</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val">${weak.length}</div>
+          <div class="stat-lbl">苦手問題数</div>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-ttl">カテゴリ別正答率</div>
+        ${catRows}
+      </div>
+
+      <div class="info-card">
+        <div class="info-ttl">苦手問題一覧（${weak.length}問）</div>
+        ${weak.length > 0 ? `
+          <div class="wrong-list">
+            ${weak.map(q => `
+              <div class="wrong-row">
+                <span class="chip ${chipClass(q.category)}" style="font-size:10px">${q.category}</span>
+                <span class="wrong-hand">${q.playerHand} vs ${q.dealerCard}</span>
+                <span class="wrong-act" style="color:var(--green)">${q.correctAction}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : '<div class="empty">苦手問題はまだありません 🎉</div>'}
+      </div>
+
+      <button class="btn btn-danger" onclick="confirmReset()" style="margin-bottom:16px">
+        🗑 成績をリセット
+      </button>
+
+      <div class="disclaimer">
+        一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  STATS MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+function confirmReset() {
+  if (confirm('成績をすべてリセットしますか？\nこの操作は元に戻せません。')) resetStats();
+}
+
+function resetStats() {
+  saveStats(defaultStats());
+  showToast('成績をリセットしました');
+  state.screen === 'stats' ? renderStats() : renderHome();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════
+
+renderHome();
+</script>
+</body>
+</html>

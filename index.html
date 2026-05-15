@@ -1076,13 +1076,16 @@ function renderStrategyTable(fromGame) {
   const cellClass = { H:'cell-H', S:'cell-S', DD:'cell-DD', SP:'cell-SP' };
   const cellLabel = { H:'H', S:'S', DD:'DD', SP:'SP' };
 
+  const compact = state.fromGame;
+  const tdStyle = compact ? ' style="padding:4px 2px;font-size:10px"' : '';
+  const td1Style = compact ? ' style="padding:4px 6px;font-size:9px;min-width:44px"' : '';
   function buildSection(table, cat) {
     const badgeClass = { Hard:'chip-hard', Soft:'chip-soft', Pair:'chip-pair' }[cat];
-    let html = `<tr class="sec-head"><td colspan="11"><span class="chip ${badgeClass}">${cat}</span></td></tr>`;
+    let html = `<tr class="sec-head"><td colspan="11"${tdStyle}><span class="chip ${badgeClass}" style="${compact?'font-size:9px;padding:1px 6px':''}">${cat}</span></td></tr>`;
     for (const row of table) {
-      html += `<tr><td>${row.hand}</td>`;
+      html += `<tr><td${td1Style}>${row.hand}</td>`;
       for (const raw of row.a) {
-        html += `<td class="${cellClass[raw]}">${cellLabel[raw]}</td>`;
+        html += `<td class="${cellClass[raw]}"${tdStyle}>${cellLabel[raw]}</td>`;
       }
       html += `</tr>`;
     }
@@ -1109,11 +1112,11 @@ function renderStrategyTable(fromGame) {
       <p style="font-size:11px;color:var(--muted);margin-bottom:10px">← 横にスクロールできます</p>
 
       <div class="table-wrap">
-        <table class="strat-table">
+        <table class="strat-table" style="${state.fromGame ? 'font-size:10px;' : ''}">
           <thead>
             <tr>
-              <th>手札 ＼ ディーラー</th>
-              ${DEALER_CARDS.map(d => `<th>${d}</th>`).join('')}
+              <th style="${state.fromGame ? 'font-size:9px;padding:5px 3px;min-width:52px' : ''}">手 ＼ D</th>
+              ${DEALER_CARDS.map(d => `<th style="${state.fromGame ? 'padding:5px 2px;font-size:9px' : ''}">${d}</th>`).join('')}
             </tr>
           </thead>
           <tbody>
@@ -1287,9 +1290,40 @@ function gmPlayHandPerfect(shoe, startIdx, pHand, dHand, upRank) {
   return { result:'push', idx };
 }
 
+// ── Casino Currencies ────────────────────────────────────────────
+// rate: JPYからの変換レート (1 JPY = rate 通貨) ※ 2025年5月現在の概算
+const CURRENCIES = [
+  { code:'JPY', flag:'🇯🇵', name:'日本円',                  symbol:'¥',     place:'日本',                   initial:10000, bet:500,   dec:0 },
+  { code:'USD', flag:'🇺🇸', name:'米ドル (USD)',             symbol:'$',     place:'ラスベガス・アトランティックシティ', initial:100, bet:5, dec:2 },
+  { code:'EUR', flag:'🇪🇺', name:'ユーロ (EUR)',             symbol:'€',     place:'ヨーロッパ・モナコ',       initial:100, bet:5,     dec:2 },
+  { code:'GBP', flag:'🇬🇧', name:'英ポンド (GBP)',           symbol:'£',     place:'ロンドン',                initial:100, bet:5,     dec:2 },
+  { code:'HKD', flag:'🇭🇰', name:'香港ドル (HKD)',           symbol:'HK$',   place:'香港',                   initial:1000, bet:50,   dec:0 },
+  { code:'MOP', flag:'🇲🇴', name:'マカオパタカ (MOP)',       symbol:'MOP$',  place:'マカオ',                  initial:1000, bet:50,   dec:0 },
+  { code:'SGD', flag:'🇸🇬', name:'シンガポールドル (SGD)',   symbol:'S$',    place:'シンガポール',             initial:150,  bet:8,    dec:2 },
+  { code:'AUD', flag:'🇦🇺', name:'豪ドル (AUD)',             symbol:'A$',    place:'オーストラリア',           initial:150,  bet:8,    dec:2 },
+  { code:'CAD', flag:'🇨🇦', name:'カナダドル (CAD)',         symbol:'C$',    place:'カナダ',                  initial:150,  bet:8,    dec:2 },
+  { code:'NZD', flag:'🇳🇿', name:'NZドル (NZD)',             symbol:'NZ$',   place:'ニュージーランド',         initial:150,  bet:8,    dec:2 },
+  { code:'CHF', flag:'🇨🇭', name:'スイスフラン (CHF)',       symbol:'Fr.',   place:'スイス',                  initial:100,  bet:5,    dec:2 },
+  { code:'KRW', flag:'🇰🇷', name:'韓国ウォン (KRW)',         symbol:'₩',     place:'韓国',                   initial:150000, bet:7000, dec:0 },
+  { code:'CNY', flag:'🇨🇳', name:'中国元 (CNY)',             symbol:'CN¥',   place:'中国',                   initial:700,  bet:35,   dec:0 },
+  { code:'TWD', flag:'🇹🇼', name:'台湾ドル (TWD)',           symbol:'NT$',   place:'台湾',                   initial:3000, bet:150,  dec:0 },
+  { code:'THB', flag:'🇹🇭', name:'タイバーツ (THB)',         symbol:'฿',     place:'タイ',                   initial:3500, bet:175,  dec:0 },
+  { code:'PHP', flag:'🇵🇭', name:'フィリピンペソ (PHP)',     symbol:'₱',     place:'フィリピン',              initial:5000, bet:250,  dec:0 },
+  { code:'MYR', flag:'🇲🇾', name:'マレーシアリンギット (MYR)', symbol:'RM',  place:'マレーシア',              initial:500,  bet:25,   dec:2 },
+  { code:'IDR', flag:'🇮🇩', name:'インドネシアルピア (IDR)', symbol:'Rp',    place:'インドネシア・バリ',       initial:1500000, bet:75000, dec:0 },
+  { code:'VND', flag:'🇻🇳', name:'ベトナムドン (VND)',       symbol:'₫',     place:'ベトナム',               initial:2500000, bet:125000, dec:0 },
+  { code:'CZK', flag:'🇨🇿', name:'チェココルナ (CZK)',       symbol:'Kč',    place:'チェコ・プラハ',          initial:2500, bet:125,  dec:0 },
+];
+
+function fmtMoney(amount, cur) {
+  const n = cur.dec > 0 ? amount.toFixed(cur.dec) : Math.round(amount).toLocaleString();
+  return cur.symbol + (cur.dec > 0 ? parseFloat(n).toLocaleString(undefined, {minimumFractionDigits:cur.dec, maximumFractionDigits:cur.dec}) : n);
+}
+
 // ── Game State ───────────────────────────────────────────────────
 let gm = null;
-function gmInit() {
+function gmInit(currencyCode) {
+  const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
   gm = {
     shoe: gmShuffle(gmMakeShoe()),
     idx:  0,
@@ -1300,9 +1334,10 @@ function gmInit() {
     handDecStart:  0,
     actualResults: [], perfResults: [], decisions: [],
     // 資金システム
-    bankroll:         10000,
-    betUnit:          500,
-    bankrollHistory:  [10000],
+    currency:         cur,
+    bankroll:         cur.initial,
+    betUnit:          cur.bet,
+    bankrollHistory:  [cur.initial],
     lastDelta:        0,
   };
 }
@@ -1330,7 +1365,7 @@ function gmDeal() {
 // delay: ms for deal animation (0 = instant, -1 = no animation)
 function gmCardHTML(card, faceDown, delay = 0) {
   const animStyle = delay >= 0
-    ? `animation:fromShoe .55s cubic-bezier(.12,.85,.28,1.06) both;animation-delay:${delay}ms;`
+    ? `animation:fromShoe .35s cubic-bezier(.15,.85,.3,1.08) both;animation-delay:${delay}ms;`
     : '';
   if (faceDown) return `
     <div style="width:68px;height:96px;background:#162318;border:2px solid var(--border);
@@ -1348,6 +1383,7 @@ function gmCardHTML(card, faceDown, delay = 0) {
 // ── Render: Game Home ────────────────────────────────────────────
 function renderGameMode() {
   state.screen = 'game-home';
+  const defaultCur = CURRENCIES[0];
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
@@ -1355,44 +1391,99 @@ function renderGameMode() {
         <span style="font-size:16px;font-weight:800;color:var(--gold)">実戦モード</span>
         <div style="width:80px"></div>
       </div>
-      <div style="text-align:center;padding:20px 0 12px">
-        <div style="font-size:44px;margin-bottom:10px">🎰</div>
-        <div style="font-size:19px;font-weight:800;margin-bottom:8px">実戦ブラックジャック</div>
-        <div style="font-size:13px;color:var(--muted);line-height:1.85">
-          実際にプレイして勝率を記録。<br>
-          終了後に <strong style="color:var(--gold)">あなたの勝率</strong> と<br>
-          <strong style="color:#4ade80">ベーシックストラテジー通りの勝率</strong> を比較します。
+      <div style="text-align:center;padding:16px 0 10px">
+        <div style="font-size:40px;margin-bottom:8px">🎰</div>
+        <div style="font-size:18px;font-weight:800;margin-bottom:6px">実戦ブラックジャック</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.8">
+          終了後にベッティング戦略別の<strong style="color:var(--gold)">資金推移グラフ</strong>を表示
         </div>
       </div>
-      <div class="info-card" style="margin-bottom:16px">
+
+      <!-- 通貨選択 -->
+      <div class="info-card" style="margin-bottom:14px">
+        <div class="info-ttl">🌍 カジノ地域・通貨を選択</div>
+        <input id="cur-search" type="text" placeholder="🔍 国・通貨名で検索…"
+          oninput="gmFilterCurrencies(this.value)"
+          style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:10px;color:var(--text);font-size:14px;padding:10px 12px;margin-bottom:10px;outline:none">
+        <div id="cur-list" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto">
+          ${CURRENCIES.map((c,i) => `
+            <label id="cur-item-${c.code}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
+              border:1.5px solid ${i===0?'var(--gold)':'var(--border)'};background:${i===0?'rgba(201,162,39,.08)':'var(--surface2)'};transition:border .15s"
+              onclick="gmSelectCurrency('${c.code}')">
+              <span style="font-size:20px">${c.flag}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+                <div style="font-size:11px;color:var(--muted)">${c.place}</div>
+              </div>
+              <div style="text-align:right;white-space:nowrap">
+                <div style="font-size:13px;font-weight:800;color:var(--gold)">${fmtMoney(c.initial,c)}</div>
+                <div style="font-size:10px;color:var(--muted)">BET ${fmtMoney(c.bet,c)}</div>
+              </div>
+              <div id="cur-check-${c.code}" style="font-size:16px;margin-left:2px">${i===0?'✓':''}</div>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:14px">
         <div class="info-ttl">ルール</div>
-        <div style="font-size:13px;color:var(--muted);line-height:1.9">
-          🃏 ${GM_DECKS}デッキシュー（${GM_DECKS*52}枚）<br>
-          🔀 75%消費時にリシャッフル（カジノ標準）<br>
-          📏 ディーラー：ソフト17でヒット（H17）<br>
-          💰 ダブルダウン・スプリット対応<br>
-          🃏 ブラックジャック = 3:2払い（¥750）
+        <div style="font-size:12px;color:var(--muted);line-height:1.9">
+          🃏 ${GM_DECKS}デッキシュー / 🔀 75%でリシャッフル（カジノ標準）<br>
+          📏 ディーラーソフト17ヒット（H17） / 💰 ダブル・スプリット対応<br>
+          🃏 ブラックジャック = 3:2払い
         </div>
       </div>
-      <div class="info-card" style="margin-bottom:16px">
-        <div class="info-ttl">資金設定</div>
-        <div style="font-size:13px;color:var(--muted);line-height:1.9">
-          💵 スタート資金：<strong style="color:var(--gold)">¥10,000</strong><br>
-          🎲 1ハンドのベット：<strong style="color:var(--gold)">¥500</strong>固定<br>
-          📈 終了後に収益グラフ・掛け方分析を表示
-        </div>
-      </div>
+
       <div class="btn-stack">
-        <button class="btn btn-primary" style="font-size:18px;padding:18px" onclick="startGameMode()">
+        <button id="gm-start-btn" class="btn btn-primary" style="font-size:18px;padding:18px"
+          onclick="startGameMode(document.querySelector('[data-cur-selected]')?.dataset.curSelected||'JPY')">
           🎰 ゲーム開始
         </button>
       </div>
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;
+
+  // 初期選択マーク
+  const firstItem = document.getElementById('cur-item-JPY');
+  if (firstItem) firstItem.dataset.curSelected = 'JPY';
+  document.getElementById('gm-start-btn').dataset.curSelected = 'JPY';
 }
 
-function startGameMode() {
-  gmInit();
+function gmSelectCurrency(code) {
+  // 全アイテムのスタイルをリセット
+  CURRENCIES.forEach(c => {
+    const el = document.getElementById('cur-item-' + c.code);
+    if (!el) return;
+    el.style.borderColor = 'var(--border)';
+    el.style.background  = 'var(--surface2)';
+    el.removeAttribute('data-cur-selected');
+    document.getElementById('cur-check-' + c.code).textContent = '';
+  });
+  // 選択中をハイライト
+  const sel = document.getElementById('cur-item-' + code);
+  if (sel) {
+    sel.style.borderColor = 'var(--gold)';
+    sel.style.background  = 'rgba(201,162,39,.08)';
+    sel.dataset.curSelected = code;
+    document.getElementById('cur-check-' + code).textContent = '✓';
+  }
+  // スタートボタンに記憶
+  const btn = document.getElementById('gm-start-btn');
+  if (btn) btn.setAttribute('onclick', `startGameMode('${code}')`);
+}
+
+function gmFilterCurrencies(q) {
+  const lower = q.toLowerCase();
+  CURRENCIES.forEach(c => {
+    const el = document.getElementById('cur-item-' + c.code);
+    if (!el) return;
+    const match = !q || c.name.toLowerCase().includes(lower) || c.place.toLowerCase().includes(lower) || c.code.toLowerCase().includes(lower);
+    el.style.display = match ? '' : 'none';
+  });
+}
+
+function startGameMode(currencyCode) {
+  gmInit(currencyCode || 'JPY');
   gmDeal();
   renderGameHand();
 }
@@ -1419,24 +1510,25 @@ function renderGameHand() {
     ? `<span style="font-size:11px;background:rgba(139,92,246,.2);color:#a78bfa;padding:2px 8px;border-radius:100px;margin-left:6px">手${cur+1}/${gm.playerHands.length}</span>`
     : '';
 
-  // カード配布アニメーション：ディーラー表 0ms、ホール 100ms、プレイヤー 200ms+
+  // カード配布アニメーション：ディーラー表 → プレイヤー1枚目 → ディーラー穴 → プレイヤー2枚目
   const isNewDeal = pHand.length === 2 && gm.playerHands.length === 1 && !gm.doubled;
-  // 人間がカードを1枚ずつ配る間隔（450ms ごと、全4枚で約2秒）
-  // 配る順番：ディーラー表 → プレイヤー1枚目 → ディーラー穴 → プレイヤー2枚目
-  const DEAL_GAP   = 450;
+  const DEAL_GAP   = 300;  // ms between each card
+  const DEAL_DUR   = 350;  // ms animation duration per card
   const dUpDelay   = isNewDeal ? 0           : -1;
   const dHoleDelay = isNewDeal ? DEAL_GAP*2  : -1;
   const pCardDelay = (i) => {
     if (!isNewDeal) return i === pHand.length - 1 ? 0 : -1;
     return i === 0 ? DEAL_GAP : DEAL_GAP * 3;
   };
+  // BJ判定は全カードのアニメーション完了後（最後のカード delay + duration）
+  const BJ_DELAY = isNewDeal ? DEAL_GAP * 3 + DEAL_DUR + 200 : 700;
 
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
         <span style="font-size:12px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}</span>
-        <span style="font-size:14px;font-weight:800;color:${gm.bankroll>=10000?'#4ade80':gm.bankroll>=8000?'var(--gold)':'#f87171'}">
-          ¥${gm.bankroll.toLocaleString()}
+        <span style="font-size:14px;font-weight:800;color:${gm.bankroll>=gm.currency.initial?'#4ade80':gm.bankroll>=gm.currency.initial*0.8?'var(--gold)':'#f87171'}">
+          ${fmtMoney(gm.bankroll, gm.currency)}
         </span>
         <span style="font-size:12px;font-weight:700">
           <span style="color:#4ade80">${W}W</span><span style="color:#f87171"> ${L}L</span>
@@ -1469,7 +1561,7 @@ function renderGameHand() {
       <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
     </div>`;
 
-  if (isBJ && gm.playerHands.length === 1) setTimeout(() => gmNextHand(), 700);
+  if (isBJ && gm.playerHands.length === 1) setTimeout(() => gmNextHand(), BJ_DELAY);
 }
 
 // ── Player Action ────────────────────────────────────────────────
@@ -1583,11 +1675,11 @@ function renderHandResult(handResults, netActual, perfResult) {
       <div class="topbar">
         <span style="font-size:12px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}</span>
         <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
-          <span style="font-size:14px;font-weight:800;color:${gm.bankroll>=10000?'#4ade80':gm.bankroll>=8000?'var(--gold)':'#f87171'}">
-            ¥${gm.bankroll.toLocaleString()}
+          <span style="font-size:14px;font-weight:800;color:${gm.bankroll>=gm.currency.initial?'#4ade80':gm.bankroll>=gm.currency.initial*0.8?'var(--gold)':'#f87171'}">
+            ${fmtMoney(gm.bankroll, gm.currency)}
           </span>
           <span style="font-size:11px;font-weight:700;color:${gm.lastDelta>0?'#4ade80':gm.lastDelta<0?'#f87171':'var(--muted)'}">
-            ${gm.lastDelta>0?'+':''}${gm.lastDelta!==0?'¥'+Math.abs(gm.lastDelta).toLocaleString():'±0'}
+            ${gm.lastDelta>0?'+':''}${gm.lastDelta!==0?fmtMoney(Math.abs(gm.lastDelta),gm.currency):'±0'}
           </span>
         </div>
         <span style="font-size:12px;font-weight:700">
@@ -1645,6 +1737,133 @@ function gmEndMidHand() {
     showToast('現在のハンドはキャンセルして集計します');
   }
   renderGameSummary();
+}
+
+// ── Betting Strategy Simulation ──────────────────────────────────
+function simulateBettingStrategies(results, initial, betUnit) {
+  function apply(br, r, bet) {
+    if (r === 'bj')   return br + Math.round(bet * 1.5);
+    if (r === 'win')  return br + bet;
+    if (r === 'loss') return br - bet;
+    return br;
+  }
+  function simFlat() {
+    let br = initial; const h = [br];
+    for (const r of results) { br = apply(br, r, betUnit); h.push(br); }
+    return h;
+  }
+  function simParoli() {
+    let br = initial, bet = betUnit, streak = 0; const h = [br];
+    for (const r of results) {
+      br = apply(br, r, bet);
+      if (r === 'bj' || r === 'win') {
+        streak++;
+        bet = streak >= 3 ? betUnit : Math.min(bet * 2, betUnit * 8);
+        if (streak >= 3) streak = 0;
+      } else if (r === 'loss') { bet = betUnit; streak = 0; }
+      h.push(br);
+    }
+    return h;
+  }
+  function sim1326() {
+    const seq = [1, 3, 2, 6]; let br = initial, step = 0; const h = [br];
+    for (const r of results) {
+      const bet = betUnit * seq[step];
+      br = apply(br, r, bet);
+      if (r === 'bj' || r === 'win') { step = (step + 1) % seq.length; }
+      else if (r === 'loss') { step = 0; }
+      h.push(br);
+    }
+    return h;
+  }
+  function simDAlembert() {
+    let br = initial, bet = betUnit; const h = [br];
+    for (const r of results) {
+      br = apply(br, r, bet);
+      if (r === 'bj' || r === 'win') { bet = Math.max(betUnit, bet - betUnit); }
+      else if (r === 'loss') { bet += betUnit; }
+      h.push(br);
+    }
+    return h;
+  }
+  return [
+    { label: 'フラット（基準）', color: '#94a3b8', data: simFlat(),     dash: true  },
+    { label: 'パーレー(Paroli)', color: '#4ade80', data: simParoli(),   dash: false },
+    { label: '1-3-2-6',         color: '#f59e0b', data: sim1326(),     dash: false },
+    { label: "D'Alembert",      color: '#60a5fa', data: simDAlembert(), dash: false },
+  ];
+}
+
+// ── Strategy Comparison Chart ─────────────────────────────────────
+function renderStrategyCompareChart(series, initial, cur) {
+  const n = series[0].data.length;
+  if (n < 2) return '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">データ不足（5ハンド以上でグラフ表示）</div>';
+
+  const W = 320, H = 165;
+  const PAD = { t:12, r:14, b:26, l:54 };
+  const cW = W - PAD.l - PAD.r, cH = H - PAD.t - PAD.b;
+
+  const allV = series.flatMap(s => s.data);
+  const minV = Math.min(...allV, initial);
+  const maxV = Math.max(...allV, initial);
+  const rng  = maxV - minV || 1;
+
+  const toX = i => PAD.l + (i / (n - 1)) * cW;
+  const toY = v => PAD.t + cH - ((v - minV) / rng) * cH;
+  const base = toY(initial).toFixed(1);
+
+  const fmtY = v => {
+    if (!cur) return v >= 1000 || v <= -1000 ? (v/1000).toFixed(1)+'k' : v;
+    const abs = Math.abs(v);
+    if (abs >= 1000000) return cur.symbol + (v/1000000).toFixed(1) + 'M';
+    if (abs >= 1000)    return cur.symbol + (v/1000).toFixed(1) + 'k';
+    return cur.symbol + Math.round(v);
+  };
+
+  const yTicks = [...new Set([minV, initial, maxV])].sort((a,b)=>a-b);
+
+  const lines = series.map(s => {
+    const pts = s.data.map((v,i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}"
+      stroke-width="${s.dash?'1.5':'2.2'}" ${s.dash?'stroke-dasharray="5,3"':''}
+      stroke-linejoin="round" stroke-linecap="round" opacity="${s.dash?'0.55':'0.9'}"/>`;
+  }).join('');
+
+  const endDots = series.filter(s=>!s.dash).map(s => {
+    const last = s.data[n-1];
+    return `<circle cx="${toX(n-1).toFixed(1)}" cy="${toY(last).toFixed(1)}" r="4"
+      fill="${s.color}" stroke="#0d1117" stroke-width="1.5"/>`;
+  }).join('');
+
+  const yLabels = yTicks.map(v => `
+    <text x="${PAD.l-5}" y="${(toY(v)+3.5).toFixed(1)}" text-anchor="end"
+      font-size="8" fill="rgba(255,255,255,.45)" font-family="monospace">${fmtY(v)}</text>
+    <line x1="${PAD.l-2}" y1="${toY(v).toFixed(1)}" x2="${PAD.l}" y2="${toY(v).toFixed(1)}"
+      stroke="rgba(255,255,255,.3)" stroke-width="1"/>`).join('');
+
+  const legend = series.map((s,i) => {
+    const x = i < 2 ? (PAD.l + (i * cW/2)) : (PAD.l + ((i-2) * cW/2));
+    const y = i < 2 ? H - 2 : H + 11;
+    return `<g>
+      <line x1="${x}" y1="${y-3}" x2="${x+14}" y2="${y-3}" stroke="${s.color}"
+        stroke-width="${s.dash?1.5:2}" ${s.dash?'stroke-dasharray="4,2"':''}/>
+      <text x="${x+17}" y="${y}" font-size="8.5" fill="${s.color}" font-family="-apple-system,sans-serif">${s.label}</text>
+    </g>`;
+  }).join('');
+
+  const svgH = H + 16;
+  return `<svg width="100%" viewBox="0 0 ${W} ${svgH}" style="display:block;overflow:visible">
+    <rect x="${PAD.l}" y="${PAD.t}" width="${cW}" height="${cH}"
+      fill="rgba(255,255,255,.03)" rx="4" stroke="rgba(255,255,255,.06)" stroke-width="1"/>
+    <line x1="${PAD.l}" y1="${base}" x2="${W-PAD.r}" y2="${base}"
+      stroke="rgba(255,255,255,.2)" stroke-dasharray="4,3" stroke-width="1"/>
+    ${lines}
+    ${endDots}
+    ${yLabels}
+    <text x="${PAD.l+2}" y="${(parseFloat(base)-3).toFixed(1)}" font-size="7.5"
+      fill="rgba(255,255,255,.35)">スタート</text>
+    ${legend}
+  </svg>`;
 }
 
 // ── Bankroll SVG Chart ────────────────────────────────────────────
@@ -1708,9 +1927,11 @@ function renderBankrollChart(history, initial) {
 }
 
 // ── Betting Strategy Advice ───────────────────────────────────────
-function getBettingAdvice(results, finalBankroll, initialBankroll) {
+function getBettingAdvice(results, finalBankroll, initialBankroll, cur) {
   const total  = results.length;
   if (total < 5) return [];
+  const betUnit = gm ? gm.betUnit : 500;
+  const fmtB = v => cur ? fmtMoney(v, cur) : '¥'+v.toLocaleString();
   const wins   = results.filter(r => r==='win'||r==='bj').length;
   const wr     = wins / total;
 
@@ -1740,7 +1961,7 @@ function getBettingAdvice(results, finalBankroll, initialBankroll) {
       icon: '📈', name: 'パーレー法', risk: '低〜中',
       badge: maxWS >= 3 ? `最大${maxWS}連勝を記録` : `勝率${Math.round(wr*100)}%`,
       desc: '勝ったら賭け金を2倍に増やし、負けたらベース額に戻す。連勝で大きく稼ぎ、負けても損失を最小限に。',
-      example: '¥500 → 勝 → ¥1,000 → 勝 → ¥2,000 → 負 → ¥500',
+      example: `${fmtB(betUnit)} → 勝 → ${fmtB(betUnit*2)} → 勝 → ${fmtB(betUnit*4)} → 負 → ${fmtB(betUnit)}`,
     });
   }
 
@@ -1750,7 +1971,7 @@ function getBettingAdvice(results, finalBankroll, initialBankroll) {
       icon: '🎯', name: '1-3-2-6法', risk: '中',
       badge: '安定した展開パターン',
       desc: '1→3→2→6の順で賭け金を増やす。4連勝で12倍の利益。途中で負けても損失が限定的。',
-      example: '¥500→¥1,500→¥1,000→¥3,000 → リセット',
+      example: `${fmtB(betUnit)}→${fmtB(betUnit*3)}→${fmtB(betUnit*2)}→${fmtB(betUnit*6)} → リセット`,
     });
   }
 
@@ -1761,7 +1982,7 @@ function getBettingAdvice(results, finalBankroll, initialBankroll) {
       icon: '⚖️', name: 'ダランベール法', risk: '中',
       badge: vol >= 0.55 ? '勝負が交互に来るパターン' : `最大${maxLS}連敗を記録`,
       desc: '負けたらベットを1単位増やし、勝ったら1単位減らす。マーチンゲールよりはるかにゆるやかな調整で、長期的な収支バランスを目指す。',
-      example: '¥500で負 → ¥1,000で勝 → ¥500に戻す（±0）',
+      example: `${fmtB(betUnit)}で負 → ${fmtB(betUnit*2)}で勝 → ${fmtB(betUnit)}に戻す（±0）`,
     });
   }
 
@@ -1770,7 +1991,7 @@ function getBettingAdvice(results, finalBankroll, initialBankroll) {
     icon: '📊', name: 'フラットベット', risk: '最低',
     badge: 'いつでも有効',
     desc: '毎回同じ金額を賭け続ける最も安全な方法。長期的なバリアンスを最小化し、資金管理がしやすい。',
-    example: '毎回¥500固定（感情に左右されない）',
+    example: `毎回${fmtB(betUnit)}固定（感情に左右されない）`,
   });
 
   // 注意：マーチンゲール（高リスク）の警告
@@ -1779,7 +2000,7 @@ function getBettingAdvice(results, finalBankroll, initialBankroll) {
       icon: '⚠️', name: 'マーチンゲール（非推奨）', risk: '非常に高',
       badge: `${maxLS}連敗 → 資金枯渇リスク`,
       desc: '連敗するたびに賭け金を2倍にする手法。今回のような連敗があると指数的に膨らみ、資金を失うリスクが極めて高い。',
-      example: `¥500→¥1,000→¥2,000→¥4,000 … ${maxLS}連敗で¥${(500*(Math.pow(2,maxLS)-1)).toLocaleString()}の損失`,
+      example: `${fmtB(betUnit)}→${fmtB(betUnit*2)}→${fmtB(betUnit*4)}→${fmtB(betUnit*8)} … ${maxLS}連敗で${fmtB(betUnit*(Math.pow(2,maxLS)-1))}の損失`,
     });
   }
 
@@ -1806,11 +2027,13 @@ function renderGameSummary() {
   const diffCol = diff>0 ? '#f87171' : diff<0 ? '#4ade80' : 'var(--muted)';
   const wrongDecs = gm.decisions.filter(d=>d.playerAction!==d.correctAction);
 
-  const INITIAL = 10000;
+  const CUR    = gm.currency;
+  const INITIAL = CUR.initial;
   const finalBR  = gm.bankroll;
   const profit   = finalBR - INITIAL;
   const profitPct = (profit / INITIAL * 100).toFixed(1);
   const profitColor = profit > 0 ? '#4ade80' : profit < 0 ? '#f87171' : 'var(--muted)';
+  const fmt = v => fmtMoney(v, CUR);
 
   // ユニット損益: 何ベット分得た/失ったか（カジノ標準指標）
   const units   = profit / gm.betUnit;
@@ -1827,10 +2050,13 @@ function renderGameSummary() {
   const perfNetWR = (pW + pL) > 0 ? Math.round(pW / (pW + pL) * 100) : 0;
   const unitDiff  = units - perfUnits;
 
+  // ベッティング戦略シミュレーション
+  const betStrategies = simulateBettingStrategies(gm.actualResults, INITIAL, gm.betUnit);
+
   const col  = v => v > 0 ? '#4ade80' : v < 0 ? '#f87171' : 'var(--muted)';
   const sign = v => v > 0 ? '+' : '';
 
-  const advice    = getBettingAdvice(gm.actualResults, finalBR, INITIAL);
+  const advice    = getBettingAdvice(gm.actualResults, finalBR, INITIAL, CUR);
   const riskColor = { '最低':'#4ade80', '低':'#86efac', '低〜中':'#fbbf24', '中':'#f97316', '高':'#f87171', '非常に高':'#ef4444' };
 
   if (total === 0) {
@@ -1868,27 +2094,48 @@ function renderGameSummary() {
         <div style="display:flex;justify-content:space-around;align-items:center;padding:8px 0">
           <div>
             <div style="font-size:11px;color:var(--muted)">スタート</div>
-            <div style="font-size:20px;font-weight:800">¥${INITIAL.toLocaleString()}</div>
+            <div style="font-size:18px;font-weight:800">${fmt(INITIAL)}</div>
           </div>
           <div style="font-size:24px;color:${profitColor};font-weight:900">
             ${profit>=0?'▲':'▼'}
           </div>
           <div>
             <div style="font-size:11px;color:var(--muted)">最終</div>
-            <div style="font-size:24px;font-weight:900;color:${profitColor}">¥${finalBR.toLocaleString()}</div>
+            <div style="font-size:22px;font-weight:900;color:${profitColor}">${fmt(finalBR)}</div>
           </div>
           <div>
             <div style="font-size:11px;color:var(--muted)">損益</div>
-            <div style="font-size:20px;font-weight:900;color:${profitColor}">${profit>=0?'+':''}¥${profit.toLocaleString()}</div>
+            <div style="font-size:18px;font-weight:900;color:${profitColor}">${profit>=0?'+':''}${fmt(profit)}</div>
             <div style="font-size:11px;color:${profitColor}">${profit>=0?'+':''}${profitPct}%</div>
           </div>
         </div>
       </div>
 
-      <!-- ── 資金グラフ ── -->
+      <!-- ── 戦略別資金推移グラフ ── -->
       <div class="info-card" style="margin-bottom:12px;padding:12px 10px">
-        <div class="info-ttl">資金推移グラフ</div>
-        ${renderBankrollChart(gm.bankrollHistory, INITIAL)}
+        <div class="info-ttl">📈 掛け方戦略別 資金推移シミュレーション</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.6">
+          今回の${total}ハンドの結果に各ベッティング戦略を適用した場合の比較。
+          フラット（破線）が基準。
+        </div>
+        ${renderStrategyCompareChart(betStrategies, INITIAL, CUR)}
+        <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:4px">
+          ${betStrategies.map(s => {
+            const last = s.data[s.data.length-1];
+            const diff = last - INITIAL;
+            const dc = diff>0?'#4ade80':diff<0?'#f87171':'var(--muted)';
+            return `<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.03);border-radius:8px;padding:7px 10px">
+              <div style="width:18px;height:2px;background:${s.color};${s.dash?'border-top:2px dashed '+s.color+';background:none':''}"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.label}</div>
+                <div style="font-size:11px;font-weight:800;color:${dc}">${diff>=0?'+':''}${fmt(diff)}</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:6px;line-height:1.5">
+          ※ シミュレーションはフラットベットの勝敗を基に試算。実際の結果は異なります。
+        </div>
       </div>
 
       <!-- ── 主要指標 4ボックス ── -->
@@ -1898,17 +2145,17 @@ function renderGameSummary() {
           <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">ユニット損益</div>
             <div style="font-size:26px;font-weight:900;color:${col(units)}">${sign(units)}${units.toFixed(1)}<span style="font-size:14px">U</span></div>
-            <div style="font-size:10px;color:var(--muted)">1U = ¥${gm.betUnit.toLocaleString()}</div>
+            <div style="font-size:10px;color:var(--muted)">1U = ${fmt(gm.betUnit)}</div>
           </div>
           <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">期待値/ハンド</div>
-            <div style="font-size:26px;font-weight:900;color:${col(evHand)}">${sign(evHand)}¥${Math.round(evHand)}</div>
+            <div style="font-size:22px;font-weight:900;color:${col(evHand)}">${sign(evHand)}${fmt(Math.round(evHand))}</div>
             <div style="font-size:10px;color:var(--muted)">1ハンドの平均損益</div>
           </div>
           <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">収益率 (ROI)</div>
             <div style="font-size:26px;font-weight:900;color:${col(roi)}">${sign(roi)}${roi.toFixed(1)}<span style="font-size:14px">%</span></div>
-            <div style="font-size:10px;color:var(--muted)">初期¥${INITIAL.toLocaleString()}に対して</div>
+            <div style="font-size:10px;color:var(--muted)">初期${fmt(INITIAL)}に対して</div>
           </div>
           <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">実質勝率</div>
@@ -1952,7 +2199,7 @@ function renderGameSummary() {
         </div>
         <div style="font-size:11px;color:var(--muted);line-height:1.6">
           ※ 完璧手の推定値はBJ 1.5倍・ダブル/スプリットを考慮しない概算。
-          理論上のハウスエッジは約0.5%（EV ≈ −¥${Math.round(gm.betUnit*0.005)}/ハンド）。
+          理論上のハウスエッジは約0.5%（EV ≈ −${fmt(Math.round(gm.betUnit*0.005))}/ハンド）。
         </div>
       </div>
 

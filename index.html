@@ -2695,9 +2695,9 @@ function renderLessonQuiz() {
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
-        <span class="chip ${chipClass(q.category)}">${q.category}</span>
+        <button class="btn btn-ghost btn-sm" onclick="renderLearningMode()">← 終了</button>
         <span style="font-size:13px;font-weight:700;color:var(--muted)">練習 ${lessonSt.quizIdx+1}/${total}</span>
-        <div style="width:60px"></div>
+        <span class="chip ${chipClass(q.category)}">${q.category}</span>
       </div>
       <div class="prog-wrap"><div class="prog-fill" style="width:${pct}%;background:${lesson.color}"></div></div>
       <div style="text-align:center;font-size:13px;font-weight:700;margin-bottom:18px;color:${lesson.color}">

@@ -1261,7 +1261,7 @@ function gmSimPerfect(shoeRef, snapIdx, playerCards, dealerCards) {
   let idx      = snapIdx;
   const upRank = dealerCards[0].rank;
 
-  if (gmIsBJ(playerCards)) return gmIsBJ(dealerCards) ? 'push' : 'win';
+  if (gmIsBJ(playerCards)) return gmIsBJ(dealerCards) ? 'push' : 'bj';
 
   // スプリット判定
   const { cat, key } = gmClassify(playerCards);
@@ -1349,7 +1349,9 @@ function gmInit(currencyCode) {
     // 資金システム
     currency:         cur,
     bankroll:         cur.initial,
-    betUnit:          cur.bet,
+    betUnit:          cur.bet,       // 基本単位（変更なし）
+    currentHandBet:   cur.bet,       // 今ハンドの実際のベット額
+    nextBet:          cur.bet,       // 次ハンドの予約ベット額
     bankrollHistory:  [cur.initial],
     lastDelta:        0,
   };
@@ -1362,6 +1364,7 @@ function gmDraw() {
   return gm.shoe[gm.idx++];
 }
 function gmDeal() {
+  gm.currentHandBet = gm.nextBet;   // プレイヤーが選んだベット額を確定
   const p1 = gmDraw(), d1 = gmDraw(), p2 = gmDraw(), d2 = gmDraw();
   gm.snapIdx    = gm.idx;
   gm.snapPlayer = [p1, p2];
@@ -1497,8 +1500,7 @@ function gmFilterCurrencies(q) {
 
 function startGameMode(currencyCode) {
   gmInit(currencyCode || 'JPY');
-  gmDeal();
-  renderGameHand();
+  renderBetSelect();  // 最初もベット選択から
 }
 
 // ── Render: Active Hand ──────────────────────────────────────────
@@ -1539,7 +1541,10 @@ function renderGameHand() {
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
-        <span style="font-size:12px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
+          <span style="font-size:12px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}</span>
+          <span style="font-size:10px;color:var(--gold);font-weight:700">BET ${fmtMoney(gm.currentHandBet, gm.currency)}</span>
+        </div>
         <span style="font-size:14px;font-weight:800;color:${gm.bankroll>=gm.currency.initial?'#4ade80':gm.bankroll>=gm.currency.initial*0.8?'var(--gold)':'#f87171'}">
           ${fmtMoney(gm.bankroll, gm.currency)}
         </span>
@@ -1658,7 +1663,7 @@ function gmResolve() {
   // 資金計算（ハンドごとにベット倍率 × betUnit を加減）
   let delta = 0;
   handResults.forEach((r, i) => {
-    const bet = (gm.handBets[i] || 1) * gm.betUnit;
+    const bet = (gm.handBets[i] || 1) * gm.currentHandBet;
     if (r === 'bj')   delta += Math.round(bet * 1.5);
     else if (r === 'win')  delta += bet;
     else if (r === 'loss') delta -= bet;
@@ -1737,10 +1742,75 @@ function renderHandResult(handResults, netActual, perfResult) {
 }
 
 function gmPlayNext() {
-  gmDeal(); renderGameHand();
+  renderBetSelect();
 }
-// 後方互換（念のため残す）
 function gmNextOrEnd() { gmPlayNext(); }
+
+function renderBetSelect() {
+  const cur = gm.currency;
+  const fmt = v => fmtMoney(v, cur);
+  const bu = gm.betUnit;
+  // ベット選択肢: 0.5x, 1x, 2x, 3x, 5x（上限は残高）
+  const opts = [0.5, 1, 2, 3, 5]
+    .map(m => Math.round(bu * m / bu) * bu)   // betUnit単位に丸め
+    .filter((v, i, a) => v > 0 && v <= gm.bankroll && a.indexOf(v) === i);
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <div style="width:80px"></div>
+        <span style="font-size:15px;font-weight:800;color:var(--gold)">💰 ベット設定</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:12px;color:var(--muted)">残高</div>
+        <div style="font-size:26px;font-weight:900;color:${gm.bankroll >= cur.initial ? '#4ade80' : '#f87171'}">
+          ${fmt(gm.bankroll)}
+        </div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:20px">
+        <div class="info-ttl">このハンドの賭け金を選んでください</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+          ${opts.map(v => `
+            <button onclick="gmSelectBet(${v})"
+              id="bet-opt-${v}"
+              class="btn ${gm.nextBet===v?'btn-primary':'btn-secondary'}"
+              style="flex:1;min-width:70px;font-size:13px;font-weight:800;padding:14px 4px">
+              ${fmt(v)}
+              ${v === bu ? '<div style="font-size:9px;opacity:.6">基本</div>' : ''}
+            </button>`).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center">
+          選択中: <strong style="color:var(--gold)">${fmt(gm.nextBet)}</strong>
+        </div>
+      </div>
+
+      <div class="btn-stack">
+        <button class="btn btn-primary" style="font-size:16px;padding:16px"
+          onclick="gmDeal(); renderGameHand()">
+          ▶ ベットしてスタート
+        </button>
+        <button class="btn btn-ghost" onclick="gmEndMidHand()">終了して結果を見る</button>
+      </div>
+    </div>`;
+}
+
+function gmSelectBet(v) {
+  gm.nextBet = v;
+  // ボタンの見た目だけ更新（軽量）
+  document.querySelectorAll('[id^="bet-opt-"]').forEach(btn => {
+    const bv = parseInt(btn.id.replace('bet-opt-', ''));
+    btn.className = 'btn ' + (bv === v ? 'btn-primary' : 'btn-secondary');
+    btn.style.cssText = btn.style.cssText; // trigger repaint
+  });
+  // 選択中テキストを更新
+  const selEl = document.querySelector('[id^="bet-opt-"]')?.parentElement?.nextElementSibling;
+  if (selEl) selEl.innerHTML = `選択中: <strong style="color:var(--gold)">${fmtMoney(v, gm.currency)}</strong>`;
+  // 再レンダリング
+  renderBetSelect();
+}
 
 // ハンド開始直後（アクション前）に「終了」を押したとき
 // → 現ハンドはなかったものとして結果表示
@@ -1857,7 +1927,7 @@ function simulateBettingStrategies(results, initial, betUnit) {
     return h;
   }
   return [
-    { label: 'フラット（基準）',        color: '#94a3b8', data: simFlat(),        dash: true,  risk: '最低',   riskColor: '#4ade80',
+    { label: 'フラット',                color: '#94a3b8', data: simFlat(),        dash: false, risk: '最低',   riskColor: '#4ade80',
       desc: '毎回同じ額を賭ける。最も安全で長期向き。' },
     { label: 'パーレー(Paroli)',        color: '#4ade80', data: simParoli(),      dash: false, risk: '低〜中', riskColor: '#86efac',
       desc: '勝ったら倍、3連勝でリセット。連勝で稼ぎ、負けは最小。' },
@@ -2793,6 +2863,16 @@ function renderGameSummary() {
 
   // ベッティング戦略シミュレーション
   const betStrategies = simulateBettingStrategies(gm.actualResults, INITIAL, gm.betUnit);
+  // 実際の成績ラインをグラフに追加（可変ベット対応）
+  betStrategies.unshift({
+    label: '実際の成績',
+    color: '#fde68a',   // ゴールド系
+    data:  gm.bankrollHistory.slice(0, gm.actualResults.length + 1),
+    dash:  false,
+    risk:  '実績',
+    riskColor: '#fde68a',
+    desc: 'あなたが実際に賭けた結果の資金推移',
+  });
 
   const col  = v => v > 0 ? '#4ade80' : v < 0 ? '#f87171' : 'var(--muted)';
   const sign = v => v > 0 ? '+' : '';
@@ -2886,7 +2966,7 @@ function renderGameSummary() {
           <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">ユニット損益</div>
             <div style="font-size:26px;font-weight:900;color:${col(units)}">${sign(units)}${units.toFixed(1)}<span style="font-size:14px">U</span></div>
-            <div style="font-size:10px;color:var(--muted)">1U = ${fmt(gm.betUnit)}</div>
+            <div style="font-size:10px;color:var(--muted)">基本単位 = ${fmt(gm.betUnit)}</div>
           </div>
           <div style="background:rgba(255,255,255,.04);border-radius:12px;padding:12px">
             <div style="font-size:10px;color:var(--muted);margin-bottom:3px">期待値/ハンド</div>

@@ -1581,8 +1581,9 @@ function renderGameHand() {
 function gmAction(action) {
   const cur     = gm.curHandIdx;
   const pHand   = gm.playerHands[cur];
-  const canSp   = pHand.length === 2 && gmIsPair(pHand);
-  const canDb   = pHand.length === 2;
+  // ボタン表示条件と一致させる（再スプリット上限・手札枚数を考慮）
+  const canSp   = pHand.length === 2 && gmIsPair(pHand) && gm.playerHands.length < 3;
+  const canDb   = pHand.length === 2 && !gmIsBJ(pHand);
   const { cat, key } = gmClassify(pHand);
   const dk      = gmDKey(gm.dealerHand[0].rank);
   const correct = gmCorrectAction(pHand, gm.dealerHand[0].rank, canSp, canDb);
@@ -1942,8 +1943,9 @@ function renderStrategyCompareChart(series, initial, cur) {
 //  SIMULATION MODE — モンテカルロシミュレーション
 // ═══════════════════════════════════════════════════════════════
 
-// BJ確率モデル（ベーシックストラテジー適用時の推定値）
-const BJ_PROBS = { bj: 0.047, win: 0.377, push: 0.089, loss: 0.487 };
+// BJ確率モデル（ベーシックストラテジー適用時）
+// EV = 0.047×1.5 + 0.394×1 - 0.470×1 ≈ -0.55%（ハウスエッジ約0.5%）
+const BJ_PROBS = { bj: 0.047, win: 0.394, push: 0.089, loss: 0.470 };
 
 function simDrawHand() {
   const r = Math.random();
@@ -2180,7 +2182,8 @@ function renderSimMode() {
 
       <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:16px">
         掛け方戦略・ハンド数・資金を設定して
-        <strong style="color:var(--text)">1,000回</strong>試行した結果の分布を表示します。
+        <strong style="color:var(--text)">3,000回</strong>試行した結果の分布を表示します。<br>
+        <span style="color:#4ade80;font-size:11px">✓ ベーシックストラテジー完璧適用時（ハウスエッジ約0.5%）で計算</span>
       </div>
 
       <!-- 戦略選択 -->
@@ -2238,10 +2241,10 @@ function renderSimMode() {
 
       <div class="btn-stack">
         <button class="btn btn-primary" style="font-size:16px;padding:16px" onclick="runSimulation()">
-          ▶ シミュレート実行（1,000回）
+          ▶ シミュレート実行（3,000回）
         </button>
         <button class="btn btn-secondary" style="font-size:14px;padding:14px;color:#60a5fa;border-color:rgba(96,165,250,.35)" onclick="runAllPatternsSim()">
-          🔢 全パターン比較（7戦略×4資金×4BET）
+          🔢 全パターン比較（7戦略×4資金×4BET / 各1,000回）
         </button>
       </div>
       <div class="disclaimer">確率モデルによる推定。実際の結果とは異なります。</div>
@@ -2253,9 +2256,54 @@ function simSetHands(n)    { simCfg.hands    = n; renderSimMode(); }
 function simSetInitial(v)  { simCfg.initial  = v; renderSimMode(); }
 function simSetBet(v)      { simCfg.betUnit  = v; renderSimMode(); }
 
+function renderSimHistogram(hist, minF, maxF, bw, initial, maxH) {
+  const W = 300, H = 90;
+  const PL = 4, PR = 4, PT = 6, PB = 20;
+  const cW = W - PL - PR, cH = H - PT - PB;
+  const n = hist.length;
+  const barW = cW / n;
+
+  // X軸は±60%の固定レンジ（比較しやすいよう）
+  const xMin = initial * 0.4;
+  const xMax = initial * 1.6;
+  const xRange = xMax - xMin;
+  const dataMin = Math.min(minF, xMin);
+  const dataMax = Math.max(maxF, xMax);
+
+  const toX = v => PL + ((v - dataMin) / (dataMax - dataMin)) * cW;
+  const initX = toX(initial).toFixed(1);
+
+  const bars = hist.map((h, i) => {
+    const center = minF + (i + 0.5) * bw;
+    const bx = toX(minF + i * bw);
+    const bw2 = Math.max(1, (bw / (dataMax - dataMin)) * cW);
+    const bh = h === 0 ? 0 : Math.max(2, Math.round((h / maxH) * cH));
+    const by = PT + cH - bh;
+    const color = center > initial ? '#4ade80' : center < initial ? '#f87171' : '#fbbf24';
+    return `<rect x="${bx.toFixed(1)}" y="${by}" width="${bw2.toFixed(1)}" height="${bh}" fill="${color}88" rx="1"/>`;
+  }).join('');
+
+  const fmtX = v => {
+    const abs = Math.abs(v);
+    if (abs >= 1000000) return (v/1000000).toFixed(1) + 'M';
+    if (abs >= 10000)   return (v/10000).toFixed(0) + '万';
+    if (abs >= 1000)    return (v/1000).toFixed(0) + 'k';
+    return Math.round(v);
+  };
+
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block;overflow:visible;margin:6px 0">
+    <rect x="${PL}" y="${PT}" width="${cW}" height="${cH}" fill="rgba(255,255,255,.03)" rx="3"/>
+    <line x1="${initX}" y1="${PT}" x2="${initX}" y2="${PT+cH}" stroke="rgba(201,162,39,.6)" stroke-width="1.5" stroke-dasharray="4,3"/>
+    ${bars}
+    <text x="${initX}" y="${PT+cH+13}" text-anchor="middle" font-size="8" fill="rgba(201,162,39,.8)" font-family="monospace">元手</text>
+    <text x="${PL+2}" y="${H}" font-size="8" fill="rgba(255,255,255,.35)" font-family="monospace">${fmtX(dataMin)}</text>
+    <text x="${W-PR-2}" y="${H}" text-anchor="end" font-size="8" fill="rgba(255,255,255,.35)" font-family="monospace">${fmtX(dataMax)}</text>
+  </svg>`;
+}
+
 function runSimulation() {
   const { strategy, hands, initial, betUnit } = simCfg;
-  const TRIALS = 1000;
+  const TRIALS = 3000;
 
   // ローディング表示
   $app().innerHTML = `
@@ -2310,19 +2358,7 @@ function runSimulation() {
         <!-- 分布ヒストグラム -->
         <div class="info-card" style="margin-bottom:12px;padding:12px 10px">
           <div class="info-ttl">最終資金の分布（${TRIALS}回）</div>
-          <div style="display:flex;align-items:flex-end;gap:2px;height:80px;margin:8px 0">
-            ${hist.map((h, i) => {
-              const v = minF + (i + 0.5) * bw;
-              const height = Math.round((h / maxH) * 80);
-              const color = v > initial ? '#4ade8066' : v < initial ? '#f8717166' : '#fbbf2466';
-              return `<div style="flex:1;background:${color};height:${height}px;border-radius:2px 2px 0 0;min-width:2px"></div>`;
-            }).join('')}
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
-            <span>¥${(minF/1000).toFixed(1)}k</span>
-            <span>¥${(initial/1000).toFixed(0)}k（元手）</span>
-            <span>¥${(maxF/1000).toFixed(1)}k</span>
-          </div>
+          ${renderSimHistogram(hist, minF, maxF, bw, initial, maxH)}
         </div>
 
         <!-- パーセンタイル -->
@@ -2365,11 +2401,12 @@ function runSimulation() {
         </div>
 
         <div class="btn-stack">
-          <button class="btn btn-primary" onclick="runSimulation()">もう一度実行</button>
+          <button class="btn btn-primary" onclick="runSimulation()">もう一度実行（再抽選）</button>
+          ${allPatternResults ? `<button class="btn btn-secondary" onclick="renderAllPatternResults()">← 全パターン一覧に戻る</button>` : ''}
           <button class="btn btn-secondary" onclick="renderSimMode()">設定を変える</button>
           <button class="btn btn-ghost" onclick="renderHome()">ホームへ戻る</button>
         </div>
-        <div class="disclaimer">確率モデルによる推定（勝率約42.5%・プッシュ約9%）。実際の結果とは異なります。</div>
+        <div class="disclaimer">確率モデル：ベーシックストラテジー適用時（勝率44.1%・BJ4.7%・プッシュ8.9%・ハウスエッジ約0.5%）。実際の結果とは異なります。</div>
       </div>`;
   }, 50);
 }
@@ -2384,7 +2421,7 @@ let allPatternFilter  = '';     // '' = all, or strategy label
 
 function runAllPatternsSim() {
   const { hands } = simCfg;
-  const TRIALS = 500;
+  const TRIALS = 1000;
 
   $app().innerHTML = `
     <div class="screen" style="align-items:center;justify-content:center;display:flex;flex-direction:column;min-height:60vh">
@@ -2489,7 +2526,8 @@ function renderAllPatternResults() {
           const p10c = c.p10 >= c.initial ? '#4ade80' : '#f87171';
           const isMartingale = c.strategy.includes('マーチン');
           return `
-          <div style="background:${i<3?'rgba(201,162,39,.06)':'rgba(255,255,255,.03)'};border:1px solid ${i===0?'rgba(201,162,39,.3)':isMartingale?'rgba(248,113,113,.15)':'rgba(255,255,255,.07)'};border-radius:12px;padding:10px 12px">
+          <div onclick="allPatternShowDetail('${c.strategy.replace(/'/g,'&#39;')}',${c.initial},${c.bet})"
+            style="background:${i<3?'rgba(201,162,39,.06)':'rgba(255,255,255,.03)'};border:1px solid ${i===0?'rgba(201,162,39,.3)':isMartingale?'rgba(248,113,113,.15)':'rgba(255,255,255,.07)'};border-radius:12px;padding:10px 12px;cursor:pointer;active:opacity:.7">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="font-size:16px;min-width:24px;text-align:center">${medal(i)}</div>
               <div style="flex:1;min-width:0">
@@ -2519,6 +2557,7 @@ function renderAllPatternResults() {
                 <div style="font-size:12px;font-weight:800;color:var(--muted)">${(c.bet/c.initial*100).toFixed(1)}%</div>
               </div>
             </div>
+            <div style="margin-top:6px;text-align:right;font-size:10px;color:var(--muted)">詳細を見る →</div>
             ${isMartingale?`<div style="margin-top:4px;font-size:9px;color:#f87171;background:rgba(248,113,113,.08);border-radius:4px;padding:3px 7px">⚠️ 長期では資金枯渇リスク</div>`:''}
           </div>`;
         }).join('')}
@@ -2541,6 +2580,15 @@ function allPatternSetFilter(idx) {
   // idx: '' = 全て, 数値 = SIM_STRATEGIES のインデックス
   allPatternFilter = idx === '' ? '' : SIM_STRATEGIES[idx];
   renderAllPatternResults();
+}
+
+function allPatternShowDetail(strategy, initial, bet) {
+  // 選択したパターンの詳細シミュレーションを実行
+  simCfg.strategy = strategy;
+  simCfg.initial  = initial;
+  simCfg.betUnit  = bet;
+  simCfg.hands    = allPatternResults ? allPatternResults.hands : simCfg.hands;
+  runSimulation();
 }
 
 // ── Bankroll SVG Chart ────────────────────────────────────────────

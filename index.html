@@ -2415,9 +2415,10 @@ function runSimulation() {
 const SIM_INITIALS = [50000, 100000, 200000, 500000];
 const SIM_BETS     = [5000, 10000, 20000, 50000];
 
-let allPatternResults = null;   // cache
-let allPatternSort    = 'roi';  // 'roi' | 'profit' | 'p10'
-let allPatternFilter  = '';     // '' = all, or strategy label
+let allPatternResults  = null;   // cache
+let allPatternSort     = 'roi';  // 'roi' | 'profit' | 'p10'
+let allPatternFilter   = '';     // '' = all, or strategy label
+let allPatternFiltered = [];     // currently displayed (sorted+filtered) list
 
 function runAllPatternsSim() {
   const { hands } = simCfg;
@@ -2477,7 +2478,8 @@ function renderAllPatternResults() {
     p10:    (a, b) => b.p10     - a.p10,
   }[sort] || ((a, b) => b.roi - a.roi);
 
-  const filtered = combos.filter(c => !filter || c.strategy === filter).sort(sortFn);
+  allPatternFiltered = combos.filter(c => !filter || c.strategy === filter).sort(sortFn);
+  const filtered = allPatternFiltered;
 
   const medal = i => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
   const sortBtn = (key, lbl) =>
@@ -2526,7 +2528,7 @@ function renderAllPatternResults() {
           const p10c = c.p10 >= c.initial ? '#4ade80' : '#f87171';
           const isMartingale = c.strategy.includes('マーチン');
           return `
-          <div onclick="allPatternShowDetail('${c.strategy.replace(/'/g,'&#39;')}',${c.initial},${c.bet})"
+          <div onclick="allPatternShowDetail(${i})"
             style="background:${i<3?'rgba(201,162,39,.06)':'rgba(255,255,255,.03)'};border:1px solid ${i===0?'rgba(201,162,39,.3)':isMartingale?'rgba(248,113,113,.15)':'rgba(255,255,255,.07)'};border-radius:12px;padding:10px 12px;cursor:pointer;active:opacity:.7">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="font-size:16px;min-width:24px;text-align:center">${medal(i)}</div>
@@ -2582,11 +2584,12 @@ function allPatternSetFilter(idx) {
   renderAllPatternResults();
 }
 
-function allPatternShowDetail(strategy, initial, bet) {
-  // 選択したパターンの詳細シミュレーションを実行
-  simCfg.strategy = strategy;
-  simCfg.initial  = initial;
-  simCfg.betUnit  = bet;
+function allPatternShowDetail(i) {
+  const c = allPatternFiltered[i];
+  if (!c) return;
+  simCfg.strategy = c.strategy;
+  simCfg.initial  = c.initial;
+  simCfg.betUnit  = c.bet;
   simCfg.hands    = allPatternResults ? allPatternResults.hands : simCfg.hands;
   runSimulation();
 }

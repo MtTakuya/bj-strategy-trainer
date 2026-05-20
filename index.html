@@ -1314,51 +1314,75 @@ function gmCorrectAction(hand, upRank, canSplit = true, canDouble = true) {
 
 // ── Parallel Perfect Simulation ──────────────────────────────────
 // 同じ初期4枚から正解手を自動プレイ → 結果を比較
+// 完璧戦略シミュレーション（スプリット時もディーラーは1回だけ）
 function gmSimPerfect(shoeRef, snapIdx, playerCards, dealerCards) {
-  const shoe   = shoeRef.slice(); // ローカルコピー（本体のシューを汚さない）
+  const shoe   = shoeRef.slice();
   let idx      = snapIdx;
   const upRank = dealerCards[0].rank;
 
   if (gmIsBJ(playerCards)) return gmIsBJ(dealerCards) ? 'push' : 'bj';
 
-  // スプリット判定
   const { cat, key } = gmClassify(playerCards);
   const firstAct = GM_STRAT[`${cat}|${key}|${gmDKey(upRank)}`] || 'Stand';
-  if (firstAct === 'Split' && playerCards.length === 2) {
-    const subs = [[playerCards[0], shoe[idx++]], [playerCards[1], shoe[idx++]]];
-    const res  = subs.map(sub => {
-      const r = gmPlayHandPerfect(shoe, idx, sub, dealerCards, upRank);
-      idx = r.idx;
-      return r.result;
-    });
-    const W = res.filter(r => r==='win').length;
-    const L = res.filter(r => r==='loss').length;
-    return W > L ? 'win' : L > W ? 'loss' : 'push';
-  }
-  return gmPlayHandPerfect(shoe, idx, playerCards.slice(), dealerCards.slice(), upRank).result;
-}
 
-function gmPlayHandPerfect(shoe, startIdx, pHand, dHand, upRank) {
-  let idx  = startIdx;
-  let hand = pHand.slice();
-  while (true) {
-    const canD  = hand.length === 2;
-    const canSp = hand.length === 2 && gmIsPair(hand);
-    let act = gmCorrectAction(hand, upRank, canSp, canD);
-    if (act === 'Split') act = 'Hit'; // スプリットは上位で処理済み
-    if (act === 'Hit')    { hand = [...hand, shoe[idx++]]; if (gmTotal(hand) > 21) return { result:'loss', idx }; }
-    else if (act === 'Double') { hand = [...hand, shoe[idx++]]; break; }
-    else break;
-    if (gmTotal(hand) >= 21) break;
+  let finalHands;
+  if (firstAct === 'Split' && playerCards.length === 2) {
+    // スプリット後の各ハンドを「プレイヤーアクションのみ」でシミュレート
+    const h1start = [playerCards[0], shoe[idx++]];
+    const h2start = [playerCards[1], shoe[idx++]];
+    const r1 = gmPerfectPlayerOnly(shoe, idx, h1start, upRank);
+    idx = r1.idx;
+    const r2 = gmPerfectPlayerOnly(shoe, idx, h2start, upRank);
+    idx = r2.idx;
+    finalHands = [r1.hand, r2.hand];
+  } else {
+    const r = gmPerfectPlayerOnly(shoe, idx, playerCards.slice(), upRank);
+    idx = r.idx;
+    finalHands = [r.hand];
   }
-  let dealer = dHand.slice();
+
+  // ディーラーは1回だけ引く（本物のゲームと同じ）
+  let dealer = dealerCards.slice();
   while (gmTotal(dealer) < 17 || (gmIsSoft(dealer) && gmTotal(dealer) === 17))
     dealer = [...dealer, shoe[idx++]];
-  const pt = gmTotal(hand), dt = gmTotal(dealer);
-  if (dt > 21) return { result:'win',  idx };
-  if (pt > dt) return { result:'win',  idx };
-  if (pt < dt) return { result:'loss', idx };
-  return { result:'push', idx };
+  const dt = gmTotal(dealer);
+
+  const results = finalHands.map(h => {
+    const pt = gmTotal(h);
+    if (pt > 21) return 'loss';
+    if (dt > 21) return 'win';
+    if (pt > dt) return 'win';
+    if (pt < dt) return 'loss';
+    return 'push';
+  });
+
+  if (results.length === 1) return results[0];
+  const W = results.filter(r => r === 'win').length;
+  const L = results.filter(r => r === 'loss').length;
+  return W > L ? 'win' : L > W ? 'loss' : 'push';
+}
+
+// プレイヤーアクションのみ（ディーラーなし）
+function gmPerfectPlayerOnly(shoe, startIdx, hand, upRank) {
+  let idx = startIdx;
+  let h   = hand.slice();
+  while (true) {
+    const canD  = h.length === 2;
+    const canSp = false; // スプリット後の再スプリットは無視
+    let act = gmCorrectAction(h, upRank, canSp, canD);
+    if (act === 'Split') act = 'Hit';
+    if (act === 'Hit') {
+      h = [...h, shoe[idx++]];
+      if (gmTotal(h) > 21) return { hand: h, idx };
+    } else if (act === 'Double') {
+      h = [...h, shoe[idx++]];
+      return { hand: h, idx };
+    } else {
+      break;
+    }
+    if (gmTotal(h) >= 21) break;
+  }
+  return { hand: h, idx };
 }
 
 // ── Casino Currencies ────────────────────────────────────────────
@@ -1414,7 +1438,90 @@ function gmInit(currencyCode) {
     phase:            'bet',         // 'bet' | 'play'
     bankrollHistory:  [cur.initial],
     lastDelta:        0,
+    // ベッティング戦略
+    bettingStrategy:  'manual',      // 'manual'|'flat'|'paroli'|'1326'|'dalembert'|'martingale'|'fibonacci'|'labouchere'
+    stratState:       {},            // 戦略ごとの内部状態
   };
+}
+
+// ── Betting Strategy Auto-Bet Calculation ────────────────────────
+const BET_STRATEGIES = [
+  { id:'manual',     label:'🙋 自分で決める',    desc:'毎ハンドチップを自分で選択' },
+  { id:'flat',       label:'＝ フラットベット',   desc:'常に同じ額でベット（最安定）' },
+  { id:'paroli',     label:'↑ パーレー法',        desc:'3連勝で利益確定。勝ちが続く時に有利' },
+  { id:'1326',       label:'🎲 グランベール(1-3-2-6)', desc:'1→3→2→6単位のサイクル。低リスク' },
+  { id:'dalembert',  label:'± D\'Alembert法',    desc:'負けで+1単位、勝ちで-1単位' },
+  { id:'martingale', label:'× マーチンゲール法',  desc:'負けたら倍賭け。高リスク高リターン' },
+  { id:'fibonacci',  label:'🌀 フィボナッチ法',   desc:'フィボナッチ数列に沿ったベット' },
+  { id:'labouchere', label:'📋 ラブシェール法',   desc:'目標利益を数列で管理' },
+];
+
+function gmCalcNextBet() {
+  const st  = gm.bettingStrategy;
+  const unit = gm.betUnit;
+  const last = gm.actualResults.length > 0 ? gm.actualResults[gm.actualResults.length - 1] : null;
+  const won  = last === 'win' || last === 'bj';
+  const ss   = gm.stratState;
+
+  if (st === 'manual' || !last) { gm.nextBet = 0; return; }
+  if (st === 'flat') { gm.nextBet = unit; return; }
+
+  if (st === 'paroli') {
+    if (!ss.streak) ss.streak = 0;
+    if (won) { ss.streak++; } else { ss.streak = 0; }
+    if (ss.streak >= 3) ss.streak = 0;  // 3連勝後リセット
+    const seq = [1, 2, 4];
+    gm.nextBet = Math.min(unit * seq[Math.min(ss.streak, 2)], gm.bankroll);
+    return;
+  }
+  if (st === '1326') {
+    if (!ss.step) ss.step = 0;
+    const seq = [1, 3, 2, 6];
+    if (won) { ss.step = (ss.step + 1) % 4; } else { ss.step = 0; }
+    gm.nextBet = Math.min(unit * seq[ss.step], gm.bankroll);
+    return;
+  }
+  if (st === 'dalembert') {
+    if (!ss.level) ss.level = 1;
+    if (won) { ss.level = Math.max(1, ss.level - 1); } else { ss.level++; }
+    gm.nextBet = Math.min(unit * ss.level, gm.bankroll);
+    return;
+  }
+  if (st === 'martingale') {
+    if (!ss.mult) ss.mult = 1;
+    if (won) { ss.mult = 1; } else { ss.mult = Math.min(ss.mult * 2, 32); }
+    gm.nextBet = Math.min(unit * ss.mult, gm.bankroll);
+    return;
+  }
+  if (st === 'fibonacci') {
+    if (!ss.a) { ss.a = 1; ss.b = 1; }
+    if (won) {
+      // 2ステップ戻る（下限は1,1）
+      const prev = ss.b - ss.a;
+      ss.b = ss.a; ss.a = Math.max(1, prev);
+    } else {
+      const next = ss.a + ss.b;
+      ss.a = ss.b; ss.b = next;
+    }
+    gm.nextBet = Math.min(unit * ss.a, gm.bankroll);
+    return;
+  }
+  if (st === 'labouchere') {
+    if (!ss.line || ss.line.length === 0) ss.line = [1, 2, 3, 4]; // 目標10単位
+    if (ss.line.length === 1) {
+      gm.nextBet = Math.min(unit * ss.line[0], gm.bankroll);
+    } else {
+      gm.nextBet = Math.min(unit * (ss.line[0] + ss.line[ss.line.length - 1]), gm.bankroll);
+    }
+    if (won) {
+      ss.line = ss.line.slice(1, -1);
+      if (ss.line.length === 0) ss.line = [1, 2, 3, 4]; // 目標達成→リセット
+    } else {
+      ss.line = [...ss.line, ss.line[0] + (ss.line[ss.line.length - 1] || 0)];
+    }
+    return;
+  }
+  gm.nextBet = unit; // fallback
 }
 function gmDraw() {
   if (gm.idx >= GM_RESHUFFLE) {
@@ -1503,6 +1610,25 @@ function renderGameMode() {
         </div>
       </div>
 
+      <!-- ベッティング戦略選択 -->
+      <div class="info-card" style="margin-bottom:14px" id="bet-strat-card">
+        <div class="info-ttl">💰 ベッティング戦略を選択</div>
+        <div id="bet-strat-list" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+          ${BET_STRATEGIES.map((s, i) => `
+            <label id="bs-item-${s.id}"
+              style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
+                     border:1.5px solid ${i===0?'var(--gold)':'var(--border)'};
+                     background:${i===0?'rgba(201,162,39,.08)':'var(--surface2)'};transition:border .15s"
+              onclick="gmSelectBetStrat('${s.id}')">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:700">${s.label}</div>
+                <div style="font-size:10px;color:var(--muted)">${s.desc}</div>
+              </div>
+              <div id="bs-check-${s.id}" style="font-size:16px;color:var(--gold)">${i===0?'✓':''}</div>
+            </label>`).join('')}
+        </div>
+      </div>
+
       <div class="info-card" style="margin-bottom:14px">
         <div class="info-ttl">ルール</div>
         <div style="font-size:12px;color:var(--muted);line-height:1.9">
@@ -1514,7 +1640,7 @@ function renderGameMode() {
 
       <div class="btn-stack">
         <button id="gm-start-btn" class="btn btn-primary" style="font-size:18px;padding:18px"
-          onclick="startGameMode(document.querySelector('[data-cur-selected]')?.dataset.curSelected||'JPY')">
+          onclick="startGameMode(document.querySelector('[data-cur-selected]')?.dataset.curSelected||'JPY', _selectedBetStrat)">
           🎰 ゲーム開始
         </button>
       </div>
@@ -1522,6 +1648,7 @@ function renderGameMode() {
     </div>`;
 
   // 初期選択マーク
+  _selectedBetStrat = 'manual';
   const firstItem = document.getElementById('cur-item-JPY');
   if (firstItem) firstItem.dataset.curSelected = 'JPY';
   document.getElementById('gm-start-btn').dataset.curSelected = 'JPY';
@@ -1547,7 +1674,24 @@ function gmSelectCurrency(code) {
   }
   // スタートボタンに記憶
   const btn = document.getElementById('gm-start-btn');
-  if (btn) btn.setAttribute('onclick', `startGameMode('${code}')`);
+  if (btn) btn.setAttribute('onclick', `startGameMode('${code}','${_selectedBetStrat}')`);
+}
+
+let _selectedBetStrat = 'manual'; // スタート画面での選択を保持
+
+function gmSelectBetStrat(id) {
+  _selectedBetStrat = id;
+  BET_STRATEGIES.forEach(s => {
+    const el = document.getElementById('bs-item-' + s.id);
+    if (!el) return;
+    el.style.borderColor = s.id === id ? 'var(--gold)' : 'var(--border)';
+    el.style.background  = s.id === id ? 'rgba(201,162,39,.08)' : 'var(--surface2)';
+    document.getElementById('bs-check-' + s.id).textContent = s.id === id ? '✓' : '';
+  });
+  // スタートボタン更新
+  const btn = document.getElementById('gm-start-btn');
+  const curCode = document.querySelector('[data-cur-selected]')?.dataset.curSelected || 'JPY';
+  if (btn) btn.setAttribute('onclick', `startGameMode('${curCode}','${id}')`);
 }
 
 function gmFilterCurrencies(q) {
@@ -1560,8 +1704,9 @@ function gmFilterCurrencies(q) {
   });
 }
 
-function startGameMode(currencyCode) {
+function startGameMode(currencyCode, betStrat) {
   gmInit(currencyCode || 'JPY');
+  gm.bettingStrategy = betStrat || _selectedBetStrat || 'manual';
   renderGameScreen();
 }
 
@@ -1622,6 +1767,14 @@ function renderGameScreen() {
               ${gm.nextBet > 0 ? `<div class="bet-circle-sub">× ${(gm.nextBet/gm.betUnit).toFixed(1)}U</div>` : ''}
             </div>
 
+            ${gm.bettingStrategy !== 'manual' ? (() => {
+              const stInfo = BET_STRATEGIES.find(s => s.id === gm.bettingStrategy);
+              return `<div style="margin-top:10px;padding:8px 12px;background:rgba(201,162,39,.1);border:1px solid rgba(201,162,39,.3);border-radius:10px;text-align:center">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">自動ベット戦略</div>
+                <div style="font-size:12px;font-weight:700;color:var(--gold)">${stInfo?.label || ''}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px">${stInfo?.desc || ''}</div>
+              </div>`;
+            })() : `
             <!-- チップトレイ -->
             <div class="chip-tray" style="margin-top:14px">
               ${denoms.map(v => gmChipSVG(v)).join('')}
@@ -1640,7 +1793,7 @@ function renderGameScreen() {
                 ${!gm.lastHandBet || gm.lastHandBet > gm.bankroll ? 'disabled style="opacity:.3"' : ''}>
                 ↩ 前回(${gm.lastHandBet ? fmt2(gm.lastHandBet) : '-'})
               </button>
-            </div>
+            </div>`}
           </div>
         </div>
 
@@ -1904,8 +2057,8 @@ function renderHandResult(handResults, netActual, perfResult) {
 }
 
 function gmPlayNext() {
-  gm.phase   = 'bet';
-  gm.nextBet = 0;
+  gm.phase = 'bet';
+  gmCalcNextBet();  // 自動ベット戦略の場合は nextBet を設定
   renderGameScreen();
 }
 function gmNextOrEnd() { gmPlayNext(); }

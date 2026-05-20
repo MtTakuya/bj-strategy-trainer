@@ -719,6 +719,61 @@ const $app = () => document.getElementById('app');
 //  RENDER: HOME
 // ═══════════════════════════════════════════════════════════════
 
+function renderTopMenu() {
+  state.screen = 'top-menu';
+  $app().innerHTML = `
+    <div class="screen">
+      <div style="text-align:center;padding:32px 0 20px">
+        <div style="font-size:48px;margin-bottom:10px">🎰</div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:.03em">Casino Trainer</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">ゲームを選んで練習しよう</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;padding:0 4px">
+        <!-- Blackjack -->
+        <button onclick="renderHome()"
+          style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);border:none;border-radius:20px;
+                 padding:24px 20px;text-align:left;cursor:pointer;color:#fff;
+                 box-shadow:0 4px 20px rgba(59,130,246,.3)">
+          <div style="display:flex;align-items:center;gap:14px">
+            <span style="font-size:44px">🃏</span>
+            <div>
+              <div style="font-size:20px;font-weight:900">ブラックジャック</div>
+              <div style="font-size:12px;opacity:.75;margin-top:3px">ベーシックストラテジー習得</div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <span style="background:rgba(255,255,255,.15);border-radius:100px;padding:2px 8px;font-size:10px">学習モード</span>
+                <span style="background:rgba(255,255,255,.15);border-radius:100px;padding:2px 8px;font-size:10px">実戦モード</span>
+                <span style="background:rgba(255,255,255,.15);border-radius:100px;padding:2px 8px;font-size:10px">シミュレーション</span>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        <!-- Baccarat -->
+        <button onclick="renderBacHome()"
+          style="background:linear-gradient(135deg,#7c2d12,#ef4444);border:none;border-radius:20px;
+                 padding:24px 20px;text-align:left;cursor:pointer;color:#fff;
+                 box-shadow:0 4px 20px rgba(239,68,68,.3)">
+          <div style="display:flex;align-items:center;gap:14px">
+            <span style="font-size:44px">🀄</span>
+            <div>
+              <div style="font-size:20px;font-weight:900">バカラ</div>
+              <div style="font-size:12px;opacity:.75;margin-top:3px">ルール習得・バンカー戦略</div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <span style="background:rgba(255,255,255,.15);border-radius:100px;padding:2px 8px;font-size:10px">学習モード</span>
+                <span style="background:rgba(255,255,255,.15);border-radius:100px;padding:2px 8px;font-size:10px">実戦モード</span>
+              </div>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <div class="disclaimer" style="margin-top:24px">
+        練習・学習用アプリです。実際のカジノでの結果を保証するものではありません。
+      </div>
+    </div>`;
+}
+
 function renderHome() {
   state.screen = 'home';
   const s = loadStats();
@@ -727,6 +782,9 @@ function renderHome() {
 
   $app().innerHTML = `
     <div class="screen">
+      <div style="display:flex;align-items:center;justify-content:flex-start;padding:8px 0 4px">
+        <button class="btn btn-ghost btn-sm" onclick="renderTopMenu()" style="font-size:11px;opacity:.6">← ゲーム選択</button>
+      </div>
       <div class="logo">
         <div class="logo-icon">🃏</div>
         <div class="logo-title">BJ Strategy Trainer</div>
@@ -3972,10 +4030,1213 @@ function completeLessonQuiz() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  BACCARAT — Constants & Logic
+// ═══════════════════════════════════════════════════════════════
+
+const BAC_DECKS     = 8;
+const BAC_RESHUFFLE = Math.floor(BAC_DECKS * 52 * 0.75); // ~312
+
+let bac = null;
+
+function bacMakeShoe() {
+  const suits = ['♠','♥','♦','♣'];
+  const ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  const shoe  = [];
+  for (let d = 0; d < BAC_DECKS; d++)
+    for (const s of suits)
+      for (const r of ranks)
+        shoe.push({ rank: r, suit: s });
+  return shoe;
+}
+function bacShuffle(shoe) {
+  const a = shoe.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function bacDrawCard() {
+  if (bac.idx >= BAC_RESHUFFLE) {
+    bac.shoe = bacShuffle(bacMakeShoe());
+    bac.idx  = 0;
+    showToast('🔀 シャッフルしました');
+  }
+  return bac.shoe[bac.idx++];
+}
+function bacValue(card) {
+  if (['10','J','Q','K'].includes(card.rank)) return 0;
+  if (card.rank === 'A') return 1;
+  return parseInt(card.rank);
+}
+function bacTotal(hand) {
+  return hand.reduce((s, c) => s + bacValue(c), 0) % 10;
+}
+function bacIsNatural(hand) {
+  if (hand.length !== 2) return false;
+  const t = bacTotal(hand);
+  return t === 8 || t === 9;
+}
+
+// サードカードルール
+function bacPlayerDraws(playerTotal) {
+  return playerTotal <= 5;
+}
+function bacBankerDraws(bankerTotal, playerDrew, pThirdVal) {
+  if (bankerTotal >= 7) return false;
+  if (!playerDrew)      return bankerTotal <= 5;
+  if (bankerTotal <= 2) return true;
+  if (bankerTotal === 3) return pThirdVal !== 8;
+  if (bankerTotal === 4) return [2,3,4,5,6,7].includes(pThirdVal);
+  if (bankerTotal === 5) return [4,5,6,7].includes(pThirdVal);
+  if (bankerTotal === 6) return [6,7].includes(pThirdVal);
+  return false;
+}
+
+function bacInit(currencyCode, betStrat) {
+  const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
+  bac = {
+    shoe: bacShuffle(bacMakeShoe()),
+    idx:  0,
+    handsPlayed:   0,
+    bankroll:      cur.initial,
+    betUnit:       cur.bet,
+    currency:      cur,
+    bettingStrategy: betStrat || 'manual',
+    stratState:    {},
+    nextBet:       0,
+    lastHandBet:   cur.bet,
+    phase:         'bet', // 'bet' | 'deal' | 'result'
+    betType:       null,  // 'player' | 'banker' | 'tie'
+    currentBet:    0,
+    playerHand:    [],
+    bankerHand:    [],
+    handResult:    null,  // 'player' | 'banker' | 'tie'
+    lastDelta:     0,
+    actualResults: [], // 'win'|'loss'|'push' (from bettor's perspective)
+    bankrollHistory: [cur.initial],
+  };
+}
+
+function bacDeal() {
+  bac.currentBet = bac.nextBet || bac.betUnit;
+  bac.lastHandBet = bac.currentBet;
+  bac.phase       = 'deal';
+  // 初期配布: P1, B1, P2, B2
+  const p1 = bacDrawCard(), b1 = bacDrawCard();
+  const p2 = bacDrawCard(), b2 = bacDrawCard();
+  bac.playerHand = [p1, p2];
+  bac.bankerHand = [b1, b2];
+}
+
+function bacResolveHand() {
+  const pt = bacTotal(bac.playerHand);
+  const bt = bacTotal(bac.bankerHand);
+
+  // Natural check (no more cards)
+  const natural = bacIsNatural(bac.playerHand) || bacIsNatural(bac.bankerHand);
+
+  if (!natural) {
+    // Player draws?
+    let playerDrew = false;
+    let pThird = null;
+    if (bacPlayerDraws(pt)) {
+      pThird = bacDrawCard();
+      bac.playerHand.push(pThird);
+      playerDrew = true;
+    }
+    // Banker draws?
+    const bt2 = bacTotal(bac.bankerHand);
+    const pThirdVal = pThird ? bacValue(pThird) : null;
+    if (bacBankerDraws(bt2, playerDrew, pThirdVal)) {
+      bac.bankerHand.push(bacDrawCard());
+    }
+  }
+
+  const finalPt = bacTotal(bac.playerHand);
+  const finalBt = bacTotal(bac.bankerHand);
+  bac.handResult = finalPt > finalBt ? 'player' : finalBt > finalPt ? 'banker' : 'tie';
+
+  // 賭け結果
+  const bt3 = bac.betType;
+  const result = bac.handResult;
+  let delta = 0;
+  let outcome;
+  if (result === 'tie') {
+    if (bt3 === 'tie')    { delta = bac.currentBet * 8; outcome = 'win'; }
+    else                  { delta = 0; outcome = 'push'; } // player/banker bet returned
+  } else {
+    if (bt3 === result) {
+      delta = bt3 === 'banker' ? Math.floor(bac.currentBet * 0.95) : bac.currentBet;
+      outcome = 'win';
+    } else {
+      delta = -bac.currentBet;
+      outcome = 'loss';
+    }
+  }
+  bac.lastDelta     = delta;
+  bac.bankroll     += delta;
+  bac.bankrollHistory.push(bac.bankroll);
+  bac.actualResults.push(outcome);
+  bac.handsPlayed++;
+  bac.phase = 'result';
+}
+
+// 自動ベット（BJ版と同様）
+function bacCalcNextBet() {
+  const st   = bac.bettingStrategy;
+  const unit = bac.betUnit;
+  const last = bac.actualResults.length > 0 ? bac.actualResults[bac.actualResults.length - 1] : null;
+  const won  = last === 'win';
+  const ss   = bac.stratState;
+  if (st === 'manual' || !last) { bac.nextBet = 0; return; }
+  if (st === 'flat') { bac.nextBet = unit; return; }
+  if (st === 'paroli') {
+    if (!ss.streak) ss.streak = 0;
+    if (won) { ss.streak++; } else { ss.streak = 0; }
+    if (ss.streak >= 3) ss.streak = 0;
+    bac.nextBet = Math.min(unit * [1,2,4][Math.min(ss.streak,2)], bac.bankroll);
+    return;
+  }
+  if (st === '1326') {
+    if (ss.step === undefined) ss.step = 0;
+    if (won) { ss.step = (ss.step+1)%4; } else { ss.step = 0; }
+    bac.nextBet = Math.min(unit * [1,3,2,6][ss.step], bac.bankroll);
+    return;
+  }
+  if (st === 'dalembert') {
+    if (!ss.level) ss.level = 1;
+    if (won) { ss.level = Math.max(1,ss.level-1); } else { ss.level++; }
+    bac.nextBet = Math.min(unit * ss.level, bac.bankroll);
+    return;
+  }
+  if (st === 'martingale') {
+    if (!ss.mult) ss.mult = 1;
+    if (won) { ss.mult = 1; } else { ss.mult = Math.min(ss.mult*2, 32); }
+    bac.nextBet = Math.min(unit * ss.mult, bac.bankroll);
+    return;
+  }
+  if (st === 'fibonacci') {
+    if (!ss.a) { ss.a = 1; ss.b = 1; }
+    if (won) { const p = ss.b-ss.a; ss.b = ss.a; ss.a = Math.max(1,p); }
+    else { const n = ss.a+ss.b; ss.a = ss.b; ss.b = n; }
+    bac.nextBet = Math.min(unit * ss.a, bac.bankroll);
+    return;
+  }
+  if (st === 'labouchere') {
+    if (!ss.line||ss.line.length===0) ss.line=[1,2,3,4];
+    bac.nextBet = Math.min(unit*(ss.line.length===1?ss.line[0]:ss.line[0]+ss.line[ss.line.length-1]), bac.bankroll);
+    if (won) { ss.line=ss.line.slice(1,-1); if(ss.line.length===0)ss.line=[1,2,3,4]; }
+    else { ss.line=[...ss.line, ss.line[0]+(ss.line[ss.line.length-1]||0)]; }
+    return;
+  }
+  bac.nextBet = unit;
+}
+
+// ── Baccarat Card HTML ────────────────────────────────────────────
+function bacCardHTML(card, faceDown, delay = 0) {
+  const animStyle = delay >= 0
+    ? `animation:fromShoe .35s cubic-bezier(.15,.85,.3,1.08) both;animation-delay:${delay}ms;`
+    : '';
+  if (faceDown) return `
+    <div class="card card-back" style="${animStyle}display:inline-flex;
+      align-items:center;justify-content:center;font-size:24px">🂠</div>`;
+  const { rank, suit } = card;
+  const isRed = suit === '♥' || suit === '♦';
+  return `
+    <div class="card" style="${animStyle}color:${isRed?'#ef4444':'var(--text)'}">
+      <div class="card-corner" style="top:4px;left:6px">${rank}<br>${suit}</div>
+      <div class="card-pip">${suit}</div>
+      <div class="card-corner" style="bottom:4px;right:6px;transform:rotate(180deg)">${rank}<br>${suit}</div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BACCARAT — UI: Home
+// ═══════════════════════════════════════════════════════════════
+
+function renderBacHome() {
+  state.screen = 'bac-home';
+  $app().innerHTML = `
+    <div class="screen">
+      <div style="display:flex;align-items:center;justify-content:flex-start;padding:8px 0 4px">
+        <button class="btn btn-ghost btn-sm" onclick="renderTopMenu()" style="font-size:11px;opacity:.6">← ゲーム選択</button>
+      </div>
+      <div class="logo">
+        <div class="logo-icon">🀄</div>
+        <div class="logo-title" style="color:#ef4444">バカラ</div>
+        <div class="logo-sub">Baccarat — ルール習得 & 実戦練習</div>
+      </div>
+
+      <div class="section">
+        <div class="sec-lbl">学習 & 実戦</div>
+        <div class="btn-stack">
+          <button class="btn btn-primary" onclick="renderBacLearnHome()"
+            style="background:linear-gradient(135deg,#991b1b,#ef4444);color:#fff;font-size:17px">
+            📚 学習モード
+          </button>
+          <button class="btn btn-primary" onclick="renderBacGameMode()"
+            style="background:linear-gradient(135deg,#7c2d12,#f97316);color:#fff;font-size:17px">
+            🎰 実戦モード
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-lbl">参考情報</div>
+        <div class="btn-stack">
+          <button class="btn btn-secondary" onclick="renderBacGuide()" style="color:var(--gold)">📋 ルール・期待値ガイド</button>
+        </div>
+      </div>
+
+      <div class="info-card" style="margin-top:8px">
+        <div class="info-ttl">ハウスエッジ早見表</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:6px">
+          <div style="background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:10px;padding:8px;text-align:center">
+            <div style="font-size:11px;color:#4ade80;font-weight:700">バンカー</div>
+            <div style="font-size:18px;font-weight:900;color:#4ade80">1.06%</div>
+            <div style="font-size:9px;color:var(--muted)">★ 最推奨</div>
+          </div>
+          <div style="background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.2);border-radius:10px;padding:8px;text-align:center">
+            <div style="font-size:11px;color:#60a5fa;font-weight:700">プレイヤー</div>
+            <div style="font-size:18px;font-weight:900;color:#60a5fa">1.24%</div>
+            <div style="font-size:9px;color:var(--muted)">次点</div>
+          </div>
+          <div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:10px;padding:8px;text-align:center">
+            <div style="font-size:11px;color:#f87171;font-weight:700">タイ</div>
+            <div style="font-size:18px;font-weight:900;color:#f87171">14.4%</div>
+            <div style="font-size:9px;color:var(--muted)">非推奨</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="disclaimer" style="margin-top:12px">
+        8デッキ使用時。カジノルールにより異なる場合があります。
+      </div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BACCARAT — UI: Rule Guide
+// ═══════════════════════════════════════════════════════════════
+
+function renderBacGuide() {
+  state.screen = 'bac-guide';
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderBacHome()">← バカラ</button>
+        <span style="font-size:15px;font-weight:800;color:#ef4444">📋 バカラガイド</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">🎯 基本ルール</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.9">
+          <strong style="color:var(--text)">プレイヤー</strong>と<strong style="color:var(--text)">バンカー</strong>のどちらが<strong style="color:var(--gold)">9に近い</strong>かを予想して賭けます。<br>
+          • カードは各サイドに2〜3枚<br>
+          • 合計が10以上なら10を引く（例: 15 → 5点）<br>
+          • 8・9は<strong style="color:var(--gold)">ナチュラル</strong>（即勝負）
+        </div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">🃏 カードの点数</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <div style="background:rgba(255,255,255,.04);border-radius:8px;padding:8px;text-align:center">
+            <div style="font-size:15px;font-weight:900;color:var(--gold)">A = 1点</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:8px;padding:8px;text-align:center">
+            <div style="font-size:15px;font-weight:900;color:var(--text)">2〜9 = 数字通り</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:8px;padding:8px;text-align:center;grid-column:1/-1">
+            <div style="font-size:15px;font-weight:900;color:var(--muted)">10・J・Q・K = <span style="color:#f87171">0点</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">📐 サードカードルール</div>
+        <div style="font-size:12px;color:var(--text);font-weight:700;margin:6px 0 4px">プレイヤー（シンプル）</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.8">
+          合計 0〜5 → <span style="color:#4ade80">3枚目を引く</span><br>
+          合計 6〜7 → <span style="color:#f87171">引かない</span><br>
+          合計 8〜9 → ナチュラル（即勝負）
+        </div>
+        <div style="font-size:12px;color:var(--text);font-weight:700;margin:10px 0 4px">バンカー（複雑）</div>
+        <div style="overflow-x:auto;margin-top:6px">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;text-align:center">
+            <thead>
+              <tr style="color:var(--muted)">
+                <th style="padding:4px 2px;border-bottom:1px solid var(--border)">バンカー合計</th>
+                <th style="padding:4px 2px;border-bottom:1px solid var(--border);color:#60a5fa">P引かなかった</th>
+                <th style="padding:4px 2px;border-bottom:1px solid var(--border);color:#4ade80">P3枚目が…</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${[
+                ['0〜2','必ず引く','必ず引く'],
+                ['3','引く','8以外なら引く'],
+                ['4','引く','2〜7なら引く'],
+                ['5','引く','4〜7なら引く'],
+                ['6','引かない','6〜7なら引く'],
+                ['7','引かない','引かない'],
+                ['8〜9','ナチュラル','ナチュラル'],
+              ].map(([tot, noP, yesP]) => `
+                <tr style="border-bottom:1px solid rgba(255,255,255,.05)">
+                  <td style="padding:5px 2px;font-weight:700;color:var(--gold)">${tot}</td>
+                  <td style="padding:5px 2px;color:${noP.includes('必ず引く')||noP.includes('引く')?'#4ade80':'#f87171'}">${noP}</td>
+                  <td style="padding:5px 2px;color:var(--muted);font-size:10px">${yesP}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">💰 賭けの種類と配当</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+          <div style="background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);border-radius:10px;padding:10px 12px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="font-size:14px;font-weight:800;color:#4ade80">BANKER（バンカー）</div>
+                <div style="font-size:11px;color:var(--muted)">ハウスエッジ 1.06%</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:16px;font-weight:900;color:var(--text)">×0.95</div>
+                <div style="font-size:10px;color:var(--muted)">5%コミッション</div>
+              </div>
+            </div>
+          </div>
+          <div style="background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:10px;padding:10px 12px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="font-size:14px;font-weight:800;color:#60a5fa">PLAYER（プレイヤー）</div>
+                <div style="font-size:11px;color:var(--muted)">ハウスエッジ 1.24%</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:16px;font-weight:900;color:var(--text)">×1</div>
+                <div style="font-size:10px;color:var(--muted)">1:1 払い</div>
+              </div>
+            </div>
+          </div>
+          <div style="background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);border-radius:10px;padding:10px 12px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div style="font-size:14px;font-weight:800;color:#f87171">TIE（タイ）</div>
+                <div style="font-size:11px;color:var(--muted)">ハウスエッジ 14.4%</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:16px;font-weight:900;color:var(--text)">×8</div>
+                <div style="font-size:10px;color:var(--muted)">引き分け時のみ</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-ttl">🏆 基本戦略</div>
+        <div style="font-size:13px;line-height:1.9;color:var(--muted)">
+          1. <strong style="color:#4ade80">常にバンカーに賭ける</strong>（最もハウスエッジが低い）<br>
+          2. タイには絶対に賭けない（14.4%は異常に高い）<br>
+          3. ベッティング戦略はフラット or パーレー法が相性良い<br>
+          4. バカラに"確率の偏り"（流れ）は存在しない
+        </div>
+      </div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BACCARAT — UI: Learning Mode
+// ═══════════════════════════════════════════════════════════════
+
+const BAC_LESSONS = [
+  {
+    title: 'バカラとは？',
+    icon:  '🃏',
+    body:  `バカラは<strong>プレイヤー(P)</strong>と<strong>バンカー(B)</strong>のどちらの合計が<strong style="color:var(--gold)">9に近いか</strong>を予想するゲームです。<br><br>
+            プレイヤーはカードを選んだり引いたりはできません。すべてのアクションは<strong>自動的に決まります</strong>。あなたの仕事は<strong>賭ける</strong>だけ！`,
+    quiz: [
+      { q: 'バカラでプレイヤーがやること？', opts:['カードを引くか選択する','賭けるだけ','ディーラーと交渉する'], ans: 1 },
+      { q: 'バカラの目標は？', opts:['21に近づく','9に近い手を持つサイドに賭ける','最高点の手を作る'], ans: 1 },
+    ]
+  },
+  {
+    title: 'カードの点数',
+    icon:  '🔢',
+    body:  `<strong style="color:var(--gold)">カードの点数（バカラ）</strong><br><br>
+            • A = <strong>1点</strong><br>
+            • 2〜9 = <strong>数字通り</strong><br>
+            • 10・J・Q・K = <strong style="color:#f87171">0点</strong><br><br>
+            合計が2桁になったら<strong>10を引きます</strong>（下一桁だけ使う）。<br>例：7+6=13 → <strong style="color:var(--gold)">3点</strong>`,
+    quiz: [
+      { q: 'K♠の点数は？', opts:['10点','0点','1点'], ans: 1 },
+      { q: 'A♥の点数は？', opts:['11点','1点','0点'], ans: 1 },
+      { q: '7♦+8♣ の合計は？', opts:['15点','5点','3点'], ans: 1 },
+      { q: 'Q♠+5♦ の合計は？', opts:['15点','5点','0点'], ans: 1 },
+    ]
+  },
+  {
+    title: 'ナチュラル',
+    icon:  '⭐',
+    body:  `最初の2枚の合計が<strong style="color:var(--gold)">8または9</strong>の場合を<strong>ナチュラル</strong>といいます。<br><br>
+            ナチュラルが出たら<strong>3枚目は引きません</strong>。即座に勝負が決まります。<br><br>
+            • 8 = ナチュラル8<br>
+            • 9 = <strong style="color:var(--gold)">ナチュラル9（最強）</strong>`,
+    quiz: [
+      { q: '5♠+4♥ の手は？', opts:['ナチュラルではない','ナチュラル9','ナチュラル8'], ans: 1 },
+      { q: 'K+8 は？', opts:['ナチュラル8（K=0点だから）','普通の手（引く可能性あり）','ナチュラル9'], ans: 0 },
+      { q: 'ナチュラルが出たら？', opts:['3枚目を引いて続ける','即勝負（3枚目なし）','賭けはキャンセル'], ans: 1 },
+    ]
+  },
+  {
+    title: 'プレイヤーのルール',
+    icon:  '👤',
+    body:  `<strong>プレイヤーのサードカードルール</strong>はシンプルです：<br><br>
+            合計 <strong style="color:#4ade80">0〜5</strong> → 3枚目を引く<br>
+            合計 <strong style="color:#f87171">6〜7</strong> → 引かない<br>
+            合計 <strong style="color:var(--gold)">8〜9</strong> → ナチュラル（即勝負）`,
+    quiz: [
+      { q: 'プレイヤー合計3の時は？', opts:['引かない','3枚目を引く','ナチュラル'], ans: 1 },
+      { q: 'プレイヤー合計6の時は？', opts:['引かない','3枚目を引く','ナチュラル'], ans: 0 },
+      { q: 'プレイヤー合計0の時は？', opts:['引かない','3枚目を引く','ナチュラル'], ans: 1 },
+      { q: 'プレイヤー合計8の時は？', opts:['引かない','3枚目を引く','ナチュラル'], ans: 2 },
+    ]
+  },
+  {
+    title: 'バンカーのルール',
+    icon:  '🏦',
+    body:  `<strong>バンカーのルール</strong>はより複雑で、<br><strong>プレイヤーが3枚目を引いたかどうか</strong>によっても変わります：<br><br>
+            合計 <strong style="color:#4ade80">0〜2</strong> → 必ず引く<br>
+            合計 <strong>3</strong> → P3枚目が8以外なら引く<br>
+            合計 <strong>4</strong> → P3枚目が2〜7なら引く<br>
+            合計 <strong>5</strong> → P3枚目が4〜7なら引く<br>
+            合計 <strong>6</strong> → P3枚目が6〜7なら引く<br>
+            合計 <strong style="color:#f87171">7</strong> → 引かない`,
+    quiz: [
+      { q: 'バンカー合計2, Pが引かなかった→？', opts:['引かない','必ず引く'], ans: 1 },
+      { q: 'バンカー合計6, Pが6を引いた→？', opts:['引かない','引く'], ans: 1 },
+      { q: 'バンカー合計7の時は？', opts:['引かない','引く'], ans: 0 },
+      { q: 'バンカー合計3, Pが8を引いた→？', opts:['引かない（8が例外）','引く'], ans: 0 },
+    ]
+  },
+  {
+    title: '賭けの戦略',
+    icon:  '💰',
+    body:  `<strong style="color:#4ade80">バンカー: 1.06%</strong> ← 最も有利<br>
+            <strong style="color:#60a5fa">プレイヤー: 1.24%</strong> ← 次点<br>
+            <strong style="color:#f87171">タイ: 14.4%</strong> ← 絶対NG<br><br>
+            <strong>基本戦略：常にバンカーに賭ける</strong><br>
+            バンカーには5%のコミッションがかかりますが、それでも最もハウスエッジが低く長期的に有利です。`,
+    quiz: [
+      { q: 'ハウスエッジが最も低い賭けは？', opts:['タイ','プレイヤー','バンカー'], ans: 2 },
+      { q: 'バンカーに5%コミッションがある理由は？', opts:['ハウスエッジを0にするため','バンカーの勝率が高いためバランスを取るため','特に意味はない'], ans: 1 },
+      { q: '長期的に最も避けるべき賭けは？', opts:['プレイヤー','バンカー','タイ'], ans: 2 },
+    ]
+  },
+];
+
+let bacLearnState = { lessonIdx: 0, quizIdx: 0, phase: 'learn' };
+
+function renderBacLearnHome() {
+  state.screen = 'bac-learn-home';
+  const done = parseInt(localStorage.getItem('bac_lessons_done') || '0');
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderBacHome()">← バカラ</button>
+        <span style="font-size:15px;font-weight:800;color:#ef4444">📚 バカラ学習</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:14px">
+        バカラの<strong style="color:var(--text)">ルール・戦略</strong>を6つのレッスンで習得しましょう。各レッスンに<strong style="color:var(--gold)">確認クイズ</strong>付き。
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${BAC_LESSONS.map((l, i) => {
+          const completed = i < done;
+          const current   = i === done;
+          return `
+          <button onclick="startBacLesson(${i})"
+            style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;text-align:left;cursor:pointer;
+                   background:${completed?'rgba(74,222,128,.06)':current?'rgba(239,68,68,.06)':'rgba(255,255,255,.03)'};
+                   border:1.5px solid ${completed?'rgba(74,222,128,.25)':current?'rgba(239,68,68,.35)':'var(--border)'};color:inherit">
+            <span style="font-size:24px">${completed?'✅':l.icon}</span>
+            <div style="flex:1">
+              <div style="font-size:14px;font-weight:700;color:${completed?'#4ade80':current?'#ef4444':'var(--text)'}">
+                Lesson ${i+1}: ${l.title}
+              </div>
+              <div style="font-size:11px;color:var(--muted)">${l.quiz.length}問クイズ付き</div>
+            </div>
+            <span style="font-size:18px;color:var(--muted)">${completed?'':'›'}</span>
+          </button>`;
+        }).join('')}
+      </div>
+
+      <button class="btn btn-danger" style="margin-top:14px;font-size:12px;opacity:.6"
+        onclick="localStorage.removeItem('bac_lessons_done');renderBacLearnHome()">
+        🗑 進捗リセット
+      </button>
+    </div>`;
+}
+
+function startBacLesson(idx) {
+  bacLearnState = { lessonIdx: idx, quizIdx: 0, phase: 'learn' };
+  renderBacLesson();
+}
+
+function renderBacLesson() {
+  const { lessonIdx } = bacLearnState;
+  const lesson = BAC_LESSONS[lessonIdx];
+  state.screen = 'bac-lesson';
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderBacLearnHome()">← 一覧</button>
+        <span style="font-size:13px;font-weight:800">Lesson ${lessonIdx+1}/${BAC_LESSONS.length}</span>
+        <div style="width:60px"></div>
+      </div>
+
+      <div style="text-align:center;padding:20px 0 16px">
+        <div style="font-size:48px;margin-bottom:10px">${lesson.icon}</div>
+        <div style="font-size:20px;font-weight:900;color:#ef4444">${lesson.title}</div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:16px;font-size:13px;line-height:2;color:var(--muted)">
+        ${lesson.body}
+      </div>
+
+      <button class="btn btn-primary" style="font-size:16px;padding:16px;background:linear-gradient(135deg,#991b1b,#ef4444)"
+        onclick="startBacQuiz()">
+        📝 確認クイズへ（${lesson.quiz.length}問）
+      </button>
+      ${lessonIdx > 0 ? `
+      <button class="btn btn-ghost" style="margin-top:8px;font-size:13px"
+        onclick="startBacLesson(${lessonIdx-1})">← 前のレッスン</button>` : ''}
+    </div>`;
+}
+
+function startBacQuiz() {
+  bacLearnState.quizIdx = 0;
+  bacLearnState.phase   = 'quiz';
+  bacLearnState.answers = [];
+  renderBacQuiz();
+}
+
+function renderBacQuiz() {
+  const { lessonIdx, quizIdx } = bacLearnState;
+  const lesson = BAC_LESSONS[lessonIdx];
+  const q      = lesson.quiz[quizIdx];
+  state.screen = 'bac-quiz';
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderBacLesson()">← 説明に戻る</button>
+        <span style="font-size:12px;color:var(--muted)">${quizIdx+1}/${lesson.quiz.length}</span>
+        <div style="width:60px"></div>
+      </div>
+
+      <div style="text-align:center;padding:28px 0 20px">
+        <div style="font-size:40px;margin-bottom:10px">❓</div>
+        <div style="font-size:16px;font-weight:800;line-height:1.6">${q.q}</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px" id="bac-quiz-opts">
+        ${q.opts.map((o, i) => `
+          <button class="btn btn-secondary" style="text-align:left;font-size:14px;padding:14px 16px"
+            onclick="checkBacQuiz(${i})">${o}</button>`).join('')}
+      </div>
+      <div id="bac-quiz-fb" style="margin-top:16px"></div>
+    </div>`;
+}
+
+function checkBacQuiz(chosen) {
+  const { lessonIdx, quizIdx } = bacLearnState;
+  const q     = BAC_LESSONS[lessonIdx].quiz[quizIdx];
+  const total = BAC_LESSONS[lessonIdx].quiz.length;
+  const correct = chosen === q.ans;
+  bacLearnState.answers = bacLearnState.answers || [];
+  bacLearnState.answers.push(correct);
+
+  // ボタンを色分け
+  const btns = document.querySelectorAll('#bac-quiz-opts button');
+  btns.forEach((b, i) => {
+    b.disabled = true;
+    if (i === q.ans)   b.style.background = 'rgba(74,222,128,.25)'; b.style.borderColor='#4ade80';
+    if (i === chosen && !correct) { b.style.background='rgba(248,113,113,.2)'; b.style.borderColor='#f87171'; }
+  });
+
+  const nextIsLast = quizIdx + 1 >= total;
+  document.getElementById('bac-quiz-fb').innerHTML = `
+    <div style="text-align:center;padding:12px;background:${correct?'rgba(74,222,128,.1)':'rgba(248,113,113,.1)'};
+      border-radius:12px;border:1px solid ${correct?'rgba(74,222,128,.3)':'rgba(248,113,113,.3)'}">
+      <div style="font-size:18px;margin-bottom:6px">${correct?'✅':'❌'}</div>
+      <div style="font-size:14px;font-weight:700;color:${correct?'#4ade80':'#f87171'}">${correct?'正解！':'不正解'}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">正解: ${q.opts[q.ans]}</div>
+    </div>
+    <button class="btn btn-primary" style="margin-top:12px;font-size:15px;padding:14px;
+      background:linear-gradient(135deg,#991b1b,#ef4444)"
+      onclick="${nextIsLast?'finishBacLesson()':'nextBacQuiz()'}">
+      ${nextIsLast?'レッスン完了！':'次の問題 →'}
+    </button>`;
+}
+
+function nextBacQuiz() {
+  bacLearnState.quizIdx++;
+  renderBacQuiz();
+}
+
+function finishBacLesson() {
+  const { lessonIdx, answers } = bacLearnState;
+  const correct = (answers||[]).filter(Boolean).length;
+  const total   = BAC_LESSONS[lessonIdx].quiz.length;
+  const done    = Math.max(parseInt(localStorage.getItem('bac_lessons_done')||'0'), lessonIdx + 1);
+  localStorage.setItem('bac_lessons_done', done);
+  const nextExists = lessonIdx + 1 < BAC_LESSONS.length;
+  state.screen = 'bac-lesson-complete';
+  $app().innerHTML = `
+    <div class="screen" style="align-items:center;justify-content:center;text-align:center;min-height:60vh;display:flex;flex-direction:column">
+      <div style="font-size:56px;margin-bottom:16px">${correct===total?'🥇':'🎉'}</div>
+      <div style="font-size:22px;font-weight:900;color:#ef4444;margin-bottom:8px">レッスン完了！</div>
+      <div style="font-size:15px;color:var(--muted);margin-bottom:20px">
+        ${correct}/${total} 正解
+      </div>
+      ${nextExists ? `
+      <button class="btn btn-primary" style="font-size:16px;padding:16px 32px;margin-bottom:10px;
+        background:linear-gradient(135deg,#991b1b,#ef4444)"
+        onclick="startBacLesson(${lessonIdx+1})">次のレッスンへ →</button>` : ''}
+      <button class="btn btn-secondary" style="font-size:14px;padding:14px 24px;margin-bottom:8px"
+        onclick="renderBacLearnHome()">レッスン一覧へ</button>
+      <button class="btn btn-ghost" style="font-size:13px" onclick="renderBacHome()">バカラホームへ</button>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BACCARAT — UI: Game Mode
+// ═══════════════════════════════════════════════════════════════
+
+let _bacSelectedBetStrat = 'manual';
+
+function renderBacGameMode() {
+  state.screen = 'bac-game-home';
+  _bacSelectedBetStrat = 'manual';
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderBacHome()">← バカラ</button>
+        <span style="font-size:15px;font-weight:800;color:#ef4444">🎰 バカラ実戦</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <!-- 通貨選択 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">🌍 カジノ地域・通貨を選択</div>
+        <input id="bac-cur-search" type="text" placeholder="🔍 国・通貨名で検索…"
+          oninput="bacFilterCurrencies(this.value)"
+          style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:10px;color:var(--text);font-size:14px;padding:10px 12px;margin-bottom:10px;outline:none">
+        <div id="bac-cur-list" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto">
+          ${CURRENCIES.map((c, i) => `
+            <label id="bac-cur-item-${c.code}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
+              border:1.5px solid ${i===0?'var(--gold)':'var(--border)'};background:${i===0?'rgba(201,162,39,.08)':'var(--surface2)'};"
+              onclick="bacSelectCurrency('${c.code}')">
+              <span style="font-size:20px">${c.flag}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+                <div style="font-size:11px;color:var(--muted)">${c.place}</div>
+              </div>
+              <div style="text-align:right;white-space:nowrap">
+                <div style="font-size:13px;font-weight:800;color:var(--gold)">${fmtMoney(c.initial,c)}</div>
+                <div style="font-size:10px;color:var(--muted)">BET ${fmtMoney(c.bet,c)}</div>
+              </div>
+              <div id="bac-cur-check-${c.code}" style="font-size:16px;color:var(--gold)">${i===0?'✓':''}</div>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <!-- ベッティング戦略 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">💰 ベッティング戦略を選択</div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+          ${BET_STRATEGIES.map((s, i) => `
+            <label id="bac-bs-item-${s.id}"
+              style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;
+                     border:1.5px solid ${i===0?'var(--gold)':'var(--border)'};
+                     background:${i===0?'rgba(201,162,39,.08)':'var(--surface2)'}"
+              onclick="bacSelectBetStrat('${s.id}')">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700">${s.label}</div>
+                <div style="font-size:10px;color:var(--muted)">${s.desc}</div>
+              </div>
+              <div id="bac-bs-check-${s.id}" style="font-size:16px;color:var(--gold)">${i===0?'✓':''}</div>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div class="info-card" style="margin-bottom:14px">
+        <div class="info-ttl">ルール</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.9">
+          🃏 ${BAC_DECKS}デッキシュー / 🔀 75%でリシャッフル<br>
+          💰 バンカー勝利: ×0.95（5%コミッション）<br>
+          💰 プレイヤー勝利: ×1 / タイ: ×8
+        </div>
+      </div>
+
+      <button id="bac-start-btn" class="btn btn-primary"
+        style="font-size:18px;padding:18px;background:linear-gradient(135deg,#991b1b,#ef4444)"
+        onclick="startBacGame('JPY', _bacSelectedBetStrat)">
+        🎰 ゲーム開始
+      </button>
+      <div class="disclaimer">練習用です。実際のカジノでの結果を保証しません。</div>
+    </div>`;
+  // 初期選択
+  const firstItem = document.getElementById('bac-cur-item-JPY');
+  if (firstItem) firstItem.dataset.bacCurSelected = 'JPY';
+}
+
+function bacSelectCurrency(code) {
+  CURRENCIES.forEach(c => {
+    const el = document.getElementById('bac-cur-item-' + c.code);
+    if (!el) return;
+    el.style.borderColor = 'var(--border)';
+    el.style.background  = 'var(--surface2)';
+    el.removeAttribute('data-bac-cur-selected');
+    document.getElementById('bac-cur-check-' + c.code).textContent = '';
+  });
+  const sel = document.getElementById('bac-cur-item-' + code);
+  if (sel) {
+    sel.style.borderColor = 'var(--gold)';
+    sel.style.background  = 'rgba(201,162,39,.08)';
+    sel.dataset.bacCurSelected = code;
+    document.getElementById('bac-cur-check-' + code).textContent = '✓';
+  }
+  const btn = document.getElementById('bac-start-btn');
+  if (btn) btn.setAttribute('onclick', `startBacGame('${code}','${_bacSelectedBetStrat}')`);
+}
+
+function bacSelectBetStrat(id) {
+  _bacSelectedBetStrat = id;
+  BET_STRATEGIES.forEach(s => {
+    const el = document.getElementById('bac-bs-item-' + s.id);
+    if (!el) return;
+    el.style.borderColor = s.id === id ? 'var(--gold)' : 'var(--border)';
+    el.style.background  = s.id === id ? 'rgba(201,162,39,.08)' : 'var(--surface2)';
+    document.getElementById('bac-bs-check-' + s.id).textContent = s.id === id ? '✓' : '';
+  });
+  const curCode = document.querySelector('[data-bac-cur-selected]')?.dataset.bacCurSelected || 'JPY';
+  const btn = document.getElementById('bac-start-btn');
+  if (btn) btn.setAttribute('onclick', `startBacGame('${curCode}','${id}')`);
+}
+
+function bacFilterCurrencies(q) {
+  const lower = q.toLowerCase();
+  CURRENCIES.forEach(c => {
+    const el = document.getElementById('bac-cur-item-' + c.code);
+    if (!el) return;
+    const match = !q || c.name.toLowerCase().includes(lower) || c.place.toLowerCase().includes(lower) || c.code.toLowerCase().includes(lower);
+    el.style.display = match ? '' : 'none';
+  });
+}
+
+function startBacGame(currencyCode, betStrat) {
+  bacInit(currencyCode || 'JPY', betStrat || 'manual');
+  renderBacScreen();
+}
+
+// ── Baccarat: Unified Bet+Play Screen ─────────────────────────────
+function renderBacScreen() {
+  state.screen = 'bac-game';
+  const fmt  = v => fmtMoney(v, bac.currency);
+  const W    = bac.actualResults.filter(r => r === 'win').length;
+  const L    = bac.actualResults.filter(r => r === 'loss').length;
+  const isBet = bac.phase === 'bet';
+
+  const DEAL_GAP = 300, DEAL_DUR = 350;
+  const animDelay = (i) => i * DEAL_GAP;
+  const BJ_DELAY  = DEAL_GAP * 3 + DEAL_DUR + 200;
+
+  const bacCardRow = (hand, side, startDelay) => {
+    if (!hand || hand.length === 0) {
+      return `<div style="display:flex;gap:6px;justify-content:center;opacity:.3">
+        <div style="width:72px;height:98px;border:2px dashed rgba(255,255,255,.2);border-radius:10px;
+          display:flex;align-items:center;justify-content:center;font-size:22px;color:rgba(255,255,255,.15)">🂠</div>
+        <div style="width:72px;height:98px;border:2px dashed rgba(255,255,255,.2);border-radius:10px;
+          display:flex;align-items:center;justify-content:center;font-size:22px;color:rgba(255,255,255,.15)">🂠</div>
+      </div>`;
+    }
+    return `<div style="display:flex;gap:6px;justify-content:center">
+      ${hand.map((c, i) => bacCardHTML(c, false, isBet ? -1 : animDelay(startDelay + i))).join('')}
+    </div>`;
+  };
+
+  const ptTotal = bac.playerHand.length ? bacTotal(bac.playerHand) : null;
+  const btTotal = bac.bankerHand.length ? bacTotal(bac.bankerHand) : null;
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <span style="font-size:11px;color:var(--muted)">Hand ${bac.handsPlayed+1}</span>
+          <span style="font-size:11px;font-weight:700">
+            <span style="color:#4ade80">${W}W</span><span style="color:#f87171"> ${L}L</span>
+          </span>
+        </div>
+        <span style="font-size:${isBet?'15':'13'}px;font-weight:900;color:${isBet?'var(--gold)':'var(--muted)'}">
+          ${isBet ? 'PLACE BET' : 'BET ' + fmt(bac.currentBet) + (bac.betType?` (${bac.betType.toUpperCase()[0]+'...'})`:'')}
+        </span>
+        <div style="text-align:right">
+          <div style="font-size:9px;color:var(--muted)">残高</div>
+          <div style="font-size:14px;font-weight:900;color:${bac.bankroll>=bac.currency.initial?'#4ade80':bac.bankroll>=bac.currency.initial*.7?'var(--gold)':'#f87171'}">
+            ${fmt(bac.bankroll)}
+          </div>
+        </div>
+      </div>
+
+      <!-- Green felt - Baccarat layout -->
+      <div class="felt-table" style="padding:10px 12px">
+        <!-- Banker zone -->
+        <div style="margin-bottom:4px">
+          <div class="zone-lbl" style="color:${btTotal!==null&&btTotal>ptTotal?'#4ade80':'var(--muted)'}">
+            🏦 BANKER ${btTotal !== null ? `<span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:13px;font-weight:900;margin-left:4px">${btTotal}</span>` : ''}
+          </div>
+          ${bacCardRow(isBet ? [] : bac.bankerHand, 'banker', 1)}
+        </div>
+
+        <hr class="felt-divider" style="margin:8px 0">
+
+        <!-- Player zone -->
+        <div>
+          <div class="zone-lbl" style="color:${ptTotal!==null&&ptTotal>btTotal?'#60a5fa':'var(--muted)'}">
+            👤 PLAYER ${ptTotal !== null ? `<span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:13px;font-weight:900;margin-left:4px">${ptTotal}</span>` : ''}
+          </div>
+          ${bacCardRow(isBet ? [] : bac.playerHand, 'player', 3)}
+        </div>
+      </div>
+
+      ${isBet ? `
+      <!-- Bet selection: PLAYER / TIE / BANKER -->
+      <div style="margin:10px 0 6px">
+        <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:8px">どこに賭けますか？（タップで選択）</div>
+        <div style="display:flex;gap:6px">
+          ${[
+            { id:'player', label:'PLAYER', sub:'×1', color:'#60a5fa', edge:'1.24%' },
+            { id:'tie',    label:'TIE',    sub:'×8', color:'#fbbf24', edge:'14.4%' },
+            { id:'banker', label:'BANKER', sub:'×0.95', color:'#4ade80', edge:'1.06%★' },
+          ].map(b => `
+            <button onclick="bacSelectBetType('${b.id}')"
+              style="flex:1;padding:12px 4px;border-radius:14px;border:2px solid ${bac.betType===b.id?b.color:'var(--border)'};
+                     background:${bac.betType===b.id?`rgba(${b.id==='player'?'96,165,250':b.id==='tie'?'251,191,36':'74,222,128'},.15)`:'var(--surface2)'};
+                     cursor:pointer;color:inherit;transition:all .15s">
+              <div style="font-size:14px;font-weight:900;color:${b.color}">${b.label}</div>
+              <div style="font-size:11px;font-weight:700;color:var(--text)">${b.sub}</div>
+              <div style="font-size:9px;color:var(--muted)">HE ${b.edge}</div>
+            </button>`).join('')}
+        </div>
+      </div>
+
+      <!-- チップ -->
+      ${bac.bettingStrategy === 'manual' ? `
+      <div class="chip-tray">
+        ${gmChipDenoms().map(v => bacChipSVG(v)).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <div style="flex:1;text-align:center;background:rgba(255,255,255,.05);border-radius:12px;padding:8px">
+          <div style="font-size:9px;color:var(--muted)">BET</div>
+          <div style="font-size:16px;font-weight:900;color:${bac.nextBet>0?'var(--gold)':'var(--muted)'}">
+            ${bac.nextBet > 0 ? fmt(bac.nextBet) : '---'}
+          </div>
+        </div>
+        <button onclick="bacClearBet()" class="btn btn-secondary"
+          style="font-size:12px;padding:8px 12px;${bac.nextBet===0?'opacity:.3;pointer-events:none':''}">🗑</button>
+        <button onclick="bacRepeatBet()" class="btn btn-secondary"
+          style="font-size:12px;padding:8px 12px"
+          ${!bac.lastHandBet||bac.lastHandBet>bac.bankroll?'disabled style="opacity:.3"':''}>↩</button>
+      </div>` : (() => {
+        const stInfo = BET_STRATEGIES.find(s => s.id === bac.bettingStrategy);
+        return `<div style="margin-top:8px;padding:8px 12px;background:rgba(201,162,39,.1);border:1px solid rgba(201,162,39,.3);border-radius:10px;text-align:center">
+          <div style="font-size:10px;color:var(--muted)">自動ベット: ${stInfo?.label||''}</div>
+          <div style="font-size:14px;font-weight:700;color:var(--gold)">
+            ${bac.nextBet>0 ? fmt(bac.nextBet) : '---（賭け先を選択してください）'}
+          </div>
+        </div>`;
+      })()}
+
+      <!-- DEAL button -->
+      <button class="btn ${bac.betType && (bac.nextBet>0||bac.bettingStrategy!=='manual') ?'btn-primary':'btn-secondary'}"
+        style="margin-top:10px;font-size:17px;font-weight:900;padding:16px;
+               background:${bac.betType&&(bac.nextBet>0||bac.bettingStrategy!=='manual')?'linear-gradient(135deg,#991b1b,#ef4444)':'var(--surface2)'};
+               ${!bac.betType||(bac.bettingStrategy==='manual'&&bac.nextBet===0)?'opacity:.35;pointer-events:none':''}"
+        onclick="bacDealAction()">
+        ▶ DEAL
+      </button>
+      <button class="btn btn-ghost" style="margin-top:6px;font-size:12px;opacity:.45"
+        onclick="bacEndGame()">終了して結果を見る</button>
+      ` : ''}
+    </div>`;
+}
+
+function bacSelectBetType(type) {
+  bac.betType = type;
+  renderBacScreen();
+}
+
+function bacAddChip(v) {
+  const newBet = bac.nextBet + v;
+  if (newBet > bac.bankroll) return;
+  bac.nextBet = newBet;
+  renderBacScreen();
+}
+function bacClearBet() { bac.nextBet = 0; renderBacScreen(); }
+function bacRepeatBet() {
+  if (bac.lastHandBet && bac.lastHandBet <= bac.bankroll) {
+    bac.nextBet = bac.lastHandBet;
+    renderBacScreen();
+  }
+}
+
+// gmChipSVG is reused but calls gmAddChip. Override for baccarat:
+function bacChipSVG(amount) {
+  const ratio = amount / (bac.betUnit || 1);
+  let outer, inner, textColor;
+  if      (ratio <= 0.1)  { outer='#4b5563'; inner='#6b7280'; textColor='#e5e7eb'; }
+  else if (ratio <= 0.5)  { outer='#991b1b'; inner='#dc2626'; textColor='#fca5a5'; }
+  else if (ratio <= 1)    { outer='#1e3a8a'; inner='#2563eb'; textColor='#bfdbfe'; }
+  else if (ratio <= 2)    { outer='#14532d'; inner='#16a34a'; textColor='#86efac'; }
+  else if (ratio <= 5)    { outer='#111827'; inner='#374151'; textColor='#d1d5db'; }
+  else                    { outer='#4c1d95'; inner='#7c3aed'; textColor='#ddd6fe'; }
+  const lbl = amount >= 1000000 ? (amount/1000000).toFixed(1)+'M'
+            : amount >= 10000   ? (amount/10000).toFixed(0)+'万'
+            : amount >= 1000    ? (amount/1000).toFixed(0)+'k'
+            : amount;
+  const disabled = (bac.nextBet + amount) > bac.bankroll;
+  return `<svg class="chip-svg" width="64" height="64" viewBox="0 0 64 64"
+    onclick="${disabled ? '' : 'bacAddChip('+amount+')'}"
+    style="cursor:${disabled?'not-allowed':'pointer'};opacity:${disabled?'.3':'1'}">
+    <circle cx="32" cy="32" r="30" fill="${outer}" stroke="${inner}" stroke-width="3.5"/>
+    <circle cx="32" cy="32" r="23.5" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="2" stroke-dasharray="7,4"/>
+    <circle cx="32" cy="32" r="17" fill="${inner}" fill-opacity=".35"/>
+    <text x="32" y="37" text-anchor="middle" font-size="11.5" font-weight="900"
+      fill="${textColor}" font-family="-apple-system,monospace">${lbl}</text>
+  </svg>`;
+}
+
+function bacDealAction() {
+  if (!bac.betType) return;
+  if (bac.bettingStrategy !== 'manual') {
+    bac.nextBet = bac.nextBet || bac.betUnit;
+  }
+  if (bac.nextBet <= 0) return;
+  bacDeal();
+  bacResolveHand(); // カード確定
+  renderBacHandPlay();
+}
+
+// ── Baccarat: Hand Play Screen ────────────────────────────────────
+function renderBacHandPlay() {
+  state.screen = 'bac-play';
+  const fmt   = v => fmtMoney(v, bac.currency);
+  const pt    = bacTotal(bac.playerHand);
+  const bt    = bacTotal(bac.bankerHand);
+  const result = bac.handResult; // 'player' | 'banker' | 'tie'
+  const outcome = bac.actualResults[bac.actualResults.length - 1]; // 'win'|'loss'|'push'
+  const delta   = bac.lastDelta;
+  const W = bac.actualResults.filter(r=>r==='win').length;
+  const L = bac.actualResults.filter(r=>r==='loss').length;
+
+  const rColors = { player:'#60a5fa', banker:'#4ade80', tie:'#fbbf24' };
+  const rLabels = { player:'PLAYER 勝利', banker:'BANKER 勝利', tie:'TIE 引き分け' };
+  const dColor  = delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : 'var(--muted)';
+
+  const DEAL_GAP = 300;
+  const animDelay = (i) => i * DEAL_GAP;
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <span style="font-size:11px;color:var(--muted)">Hand ${bac.handsPlayed}</span>
+        <span style="font-size:13px;font-weight:900;color:${rColors[result]}">${rLabels[result]}</span>
+        <div style="text-align:right">
+          <div style="font-size:9px;color:var(--muted)">残高</div>
+          <div style="font-size:13px;font-weight:900;color:${bac.bankroll>=bac.currency.initial?'#4ade80':bac.bankroll>=bac.currency.initial*.7?'var(--gold)':'#f87171'}">
+            ${fmt(bac.bankroll)}
+          </div>
+        </div>
+      </div>
+
+      <div class="felt-table" style="padding:10px 12px">
+        <!-- Banker -->
+        <div style="margin-bottom:4px">
+          <div class="zone-lbl" style="color:${result==='banker'?'#4ade80':'var(--muted)'}">
+            🏦 BANKER
+            <span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:15px;font-weight:900;margin-left:6px">${bt}</span>
+            ${result==='banker'?'<span style="margin-left:6px;font-size:11px;color:#4ade80">WIN ✓</span>':''}
+          </div>
+          <div style="display:flex;gap:6px;justify-content:center">
+            ${bac.bankerHand.map((c, i) => bacCardHTML(c, false, animDelay(i))).join('')}
+          </div>
+        </div>
+        <hr class="felt-divider" style="margin:8px 0">
+        <!-- Player -->
+        <div>
+          <div class="zone-lbl" style="color:${result==='player'?'#60a5fa':result==='tie'?'#fbbf24':'var(--muted)'}">
+            👤 PLAYER
+            <span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:15px;font-weight:900;margin-left:6px">${pt}</span>
+            ${result==='player'?'<span style="margin-left:6px;font-size:11px;color:#60a5fa">WIN ✓</span>':''}
+            ${result==='tie'?'<span style="margin-left:6px;font-size:11px;color:#fbbf24">TIE</span>':''}
+          </div>
+          <div style="display:flex;gap:6px;justify-content:center">
+            ${bac.playerHand.map((c, i) => bacCardHTML(c, false, animDelay(bac.bankerHand.length + i))).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- 結果バッジ -->
+      <div style="margin:10px 0 6px;padding:12px;background:${outcome==='win'?'rgba(74,222,128,.1)':outcome==='loss'?'rgba(248,113,113,.1)':'rgba(251,191,36,.1)'};
+        border-radius:14px;border:1px solid ${outcome==='win'?'rgba(74,222,128,.3)':outcome==='loss'?'rgba(248,113,113,.3)':'rgba(251,191,36,.3)'};
+        text-align:center">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px">
+          あなたの賭け: <strong style="color:${rColors[bac.betType]}">${(bac.betType||'').toUpperCase()}</strong>
+          (BET ${fmt(bac.currentBet)})
+        </div>
+        <div style="font-size:22px;font-weight:900;color:${dColor}">
+          ${delta > 0 ? '+' : ''}${fmt(delta)}
+        </div>
+        <div style="font-size:13px;color:${dColor};font-weight:700">
+          ${outcome==='win'?'🎉 勝ち！':outcome==='loss'?'😞 負け':'🤝 タイ（ベット返還）'}
+        </div>
+      </div>
+
+      <!-- 累計 -->
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <div style="flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+          <div style="font-size:9px;color:var(--muted)">通算</div>
+          <div style="font-size:13px;font-weight:700">
+            <span style="color:#4ade80">${W}W</span> <span style="color:#f87171">${L}L</span>
+          </div>
+        </div>
+        <div style="flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+          <div style="font-size:9px;color:var(--muted)">損益</div>
+          <div style="font-size:13px;font-weight:800;color:${bac.bankroll-bac.currency.initial>=0?'#4ade80':'#f87171'}">
+            ${bac.bankroll-bac.currency.initial>=0?'+':''}${fmt(bac.bankroll - bac.currency.initial)}
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" style="font-size:16px;padding:16px;background:linear-gradient(135deg,#991b1b,#ef4444)"
+        onclick="bacNextHand()">次のハンド →</button>
+      <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;opacity:.55"
+        onclick="bacEndGame()">終了して結果を見る</button>
+    </div>`;
+}
+
+function bacNextHand() {
+  bac.phase   = 'bet';
+  bac.betType = null;
+  bacCalcNextBet();
+  renderBacScreen();
+}
+
+function bacEndGame() {
+  if (bac.actualResults.length === 0) {
+    showToast('ゲームをキャンセルしました');
+    renderBacHome();
+    return;
+  }
+  renderBacSummary();
+}
+
+// ── Baccarat: Summary ─────────────────────────────────────────────
+function renderBacSummary() {
+  state.screen = 'bac-summary';
+  const cur   = bac.currency;
+  const fmt   = v => fmtMoney(v, cur);
+  const total = bac.actualResults.length;
+  const W     = bac.actualResults.filter(r => r === 'win').length;
+  const L     = bac.actualResults.filter(r => r === 'loss').length;
+  const P     = bac.actualResults.filter(r => r === 'push').length;
+  const wr    = total > 0 ? Math.round(W / total * 100) : 0;
+  const profit = bac.bankroll - cur.initial;
+  const pc     = profit >= 0 ? '#4ade80' : '#f87171';
+  const betStrategies = simulateBettingStrategies(bac.actualResults, cur.initial, bac.betUnit);
+  betStrategies.unshift({
+    label: '実際の成績',
+    color: '#fde68a',
+    data:  bac.bankrollHistory.slice(0, bac.actualResults.length + 1),
+    dash:  false,
+    risk:  '実績',
+    riskColor: '#fde68a',
+    desc: 'あなたが実際に賭けた結果の資金推移',
+  });
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderBacHome()">← バカラ</button>
+        <span style="font-size:15px;font-weight:800;color:#ef4444">ゲーム結果</span>
+        <button class="btn btn-ghost btn-sm" onclick="renderTopMenu()">トップ</button>
+      </div>
+
+      <div style="text-align:center;padding:12px 0">
+        <div style="font-size:40px;margin-bottom:8px">${profit>=0?'🏆':'💸'}</div>
+        <div style="font-size:24px;font-weight:900;color:${pc}">${profit>=0?'+':''}${fmt(profit)}</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:4px">
+          ${total}ハンド / ${fmt(cur.initial)} スタート
+        </div>
+      </div>
+
+      <!-- 統計 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">成績サマリー</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
+          <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+            <div style="font-size:9px;color:var(--muted)">勝利</div>
+            <div style="font-size:20px;font-weight:900;color:#4ade80">${W}</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+            <div style="font-size:9px;color:var(--muted)">敗北</div>
+            <div style="font-size:20px;font-weight:900;color:#f87171">${L}</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+            <div style="font-size:9px;color:var(--muted)">タイ(返還)</div>
+            <div style="font-size:20px;font-weight:900;color:#fbbf24">${P}</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+            <div style="font-size:9px;color:var(--muted)">勝率</div>
+            <div style="font-size:20px;font-weight:900;color:${wr>=50?'#4ade80':'#f87171'}">${wr}%</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center;grid-column:span 2">
+            <div style="font-size:9px;color:var(--muted)">ROI</div>
+            <div style="font-size:20px;font-weight:900;color:${pc}">
+              ${profit>=0?'+':''}${(profit/cur.initial*100).toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 資金推移グラフ -->
+      ${total >= 3 ? `
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">📈 ベッティング戦略別 資金推移</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px">各戦略であなたの結果を同じ条件で適用した場合</div>
+        ${renderStrategyCompareChart(betStrategies, cur.initial, cur)}
+      </div>` : ''}
+
+      <div class="btn-stack">
+        <button class="btn btn-primary" style="background:linear-gradient(135deg,#991b1b,#ef4444)"
+          onclick="renderBacGameMode()">もう一度プレイ</button>
+        <button class="btn btn-secondary" onclick="renderBacHome()">バカラホームへ</button>
+        <button class="btn btn-ghost" onclick="renderTopMenu()">ゲーム選択へ</button>
+      </div>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════════════
 
-renderHome();
+renderTopMenu();
 </script>
 </body>
 </html>

@@ -2624,7 +2624,7 @@ function renderSimMode() {
               <button onclick="simSetBet(${v})" id="simb-${v}"
                 class="btn ${c.betUnit===v?'btn-primary':'btn-secondary'}"
                 style="flex:1;min-width:60px;font-size:12px;padding:8px 0">
-                ${(v/10000).toFixed(0)!=='0'?(v/10000).toFixed(0)+'万':'¥'+v.toLocaleString()}
+                ${v >= 10000 ? (v/10000) + '万' : v.toLocaleString() + '円'}
               </button>`).join('')}
           </div>
         </div>
@@ -2721,8 +2721,10 @@ function runSimulation() {
     });
     const maxH = Math.max(...hist);
 
-    const profit = mean - initial;
+    const profit    = mean - initial;
+    const medianROI = (p50 - initial) / initial * 100;  // 中央値ベースROI
     const pc = profit >= 0 ? '#4ade80' : '#f87171';
+    const roiC = medianROI >= 0 ? '#4ade80' : '#f87171';
 
     $app().innerHTML = `
       <div class="screen">
@@ -2765,22 +2767,26 @@ function runSimulation() {
         <!-- キー指標 -->
         <div class="info-card" style="margin-bottom:12px">
           <div class="info-ttl">サマリー</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
             <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
-              <div style="font-size:10px;color:var(--muted)">期待値（平均損益）</div>
-              <div style="font-size:20px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit).toLocaleString()}</div>
+              <div style="font-size:9px;color:var(--muted)">期待値（平均損益）</div>
+              <div style="font-size:16px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit).toLocaleString()}</div>
             </div>
             <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
-              <div style="font-size:10px;color:var(--muted)">EV/ハンド</div>
-              <div style="font-size:20px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit/hands).toLocaleString()}</div>
+              <div style="font-size:9px;color:var(--muted)">期待ROI（中央値）</div>
+              <div style="font-size:16px;font-weight:900;color:${roiC}">${medianROI>=0?'+':''}${medianROI.toFixed(1)}%</div>
             </div>
             <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
-              <div style="font-size:10px;color:var(--muted)">黒字になる確率</div>
-              <div style="font-size:20px;font-weight:900;color:${profitPct>=50?'#4ade80':'#f87171'}">${profitPct.toFixed(1)}%</div>
+              <div style="font-size:9px;color:var(--muted)">EV/ハンド</div>
+              <div style="font-size:16px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit/hands).toLocaleString()}</div>
             </div>
             <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
-              <div style="font-size:10px;color:var(--muted)">資金枯渇リスク</div>
-              <div style="font-size:20px;font-weight:900;color:${ruinPct>5?'#f87171':ruinPct>0?'#fbbf24':'#4ade80'}">${ruinPct.toFixed(1)}%</div>
+              <div style="font-size:9px;color:var(--muted)">黒字確率</div>
+              <div style="font-size:16px;font-weight:900;color:${profitPct>=50?'#4ade80':'#f87171'}">${profitPct.toFixed(1)}%</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--muted)">資金枯渇リスク</div>
+              <div style="font-size:16px;font-weight:900;color:${ruinPct>5?'#f87171':ruinPct>0?'#fbbf24':'#4ade80'}">${ruinPct.toFixed(1)}%</div>
             </div>
           </div>
         </div>
@@ -2835,11 +2841,13 @@ function runAllPatternsSim() {
         SIM_STRATEGIES.forEach((strat, i) => {
           const finals = [...stratFinals[i]].sort((a, b) => a - b);
           const mean      = finals.reduce((s, v) => s + v, 0) / TRIALS;
+          const median    = finals[Math.floor(0.50 * (TRIALS - 1))];  // 中央値
           const profitPct = finals.filter(v => v > initial).length / TRIALS * 100;
           const p10       = finals[Math.floor(0.10 * (TRIALS - 1))];
           const p90       = finals[Math.floor(0.90 * (TRIALS - 1))];
-          const roi       = (mean - initial) / initial * 100;
-          combos.push({ strategy: strat, initial, bet, mean, profitPct, p10, p90, roi,
+          // ROIは中央値ベース（50%超が負けならマイナスになる直感的な指標）
+          const roi       = (median - initial) / initial * 100;
+          combos.push({ strategy: strat, initial, bet, mean, median, profitPct, p10, p90, roi,
                         riskColor: strat === 'マーチンゲール' ? '#f87171' : null });
         });
       }
@@ -2887,7 +2895,7 @@ function renderAllPatternResults() {
       <!-- 指標の説明 -->
       <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:11px;line-height:1.9;color:var(--muted)">
         <div style="font-weight:800;color:var(--text);margin-bottom:4px">📖 指標の見方</div>
-        <div><span style="color:var(--gold);font-weight:700">期待ROI</span> … (平均最終資金－元手)÷元手。プラスなら平均的に黒字</div>
+        <div><span style="color:var(--gold);font-weight:700">期待ROI</span> … (中央値最終資金－元手)÷元手。50%超が黒字ならプラス表示</div>
         <div><span style="color:#4ade80;font-weight:700">黒字確率</span> … 1,000回試行のうち元手より多く残った割合</div>
         <div><span style="color:#f87171;font-weight:700">最悪10%</span> … 最も悪い10%のケースでの損益。リスク指標</div>
         <div style="margin-top:4px;color:rgba(255,255,255,.3);font-size:10px">※ 破産した場合は残高¥0として計算</div>

@@ -1,7 +1,7 @@
 {
-  "name": "BJ Strategy Trainer",
-  "short_name": "BJ Trainer",
-  "description": "ブラックジャック ベーシックストラテジー練習アプリ",
+  "name": "Casino Trainer",
+  "short_name": "Casino",
+  "description": "ブラックジャック & バカラ 練習アプリ",
   "start_url": "/bj-strategy-trainer/",
   "scope": "/bj-strategy-trainer/",
   "display": "standalone",
@@ -10,8 +10,14 @@
   "theme_color": "#0a0f0d",
   "icons": [
     {
-      "src": "icon.png",
+      "src": "icon-180.png",
       "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
     }

@@ -1,5 +1,5 @@
-const CACHE = 'bj-trainer-v3';
-const ASSETS = ['./icon.png', './manifest.json'];
+const CACHE = 'casino-trainer-v4';
+const ASSETS = ['./icon.png', './icon-180.png', './manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));

@@ -1527,6 +1527,27 @@ const BET_STRATEGIES = [
   { id:'labouchere', label:'📋 ラブシェール法',   desc:'目標利益を数列で管理' },
 ];
 
+// strategy ID → 比較チャートのシミュレーションラベル対応
+// BJ: 'win'は1x / BAC: bankerは0.95x（bacSimulateStrategies使用）
+const STRAT_SIM_LABEL_BJ = {
+  flat:       'フラット',
+  paroli:     'パーレー(Paroli)',
+  '1326':     'グランベール(1-3-2-6)',
+  dalembert:  "D'Alembert",
+  martingale: 'マーチンゲール',
+  fibonacci:  'フィボナッチ',
+  labouchere: 'ラブシェール',
+};
+const STRAT_SIM_LABEL_BAC = {
+  flat:       'フラット',
+  paroli:     'パーレー法',
+  '1326':     'グランベール(1-3-2-6)',
+  dalembert:  "D'Alembert",
+  martingale: 'マーチンゲール',
+  fibonacci:  'フィボナッチ',
+  labouchere: 'ラブシェール',
+};
+
 function gmCalcNextBet() {
   const st  = gm.bettingStrategy;
   const unit = gm.betUnit;
@@ -3252,16 +3273,26 @@ function renderGameSummary() {
   const unitDiff  = units - perfUnits;
 
   // ベッティング戦略シミュレーション
-  const betStrategies = simulateBettingStrategies(gm.actualResults, INITIAL, gm.betUnit);
-  // 実際の成績ラインをグラフに追加（可変ベット対応）
+  // 自動戦略を使用した場合: その戦略のシミュレーションラインを削除し「実際の成績」で代替
+  // （ダブル/スプリットで実際のベット額がシミュ前提と異なるため混在ラインをなくす）
+  const usedSimLabelBJ = STRAT_SIM_LABEL_BJ[gm.bettingStrategy] || null;
+  const usedStratName  = gm.bettingStrategy !== 'manual'
+    ? (BET_STRATEGIES.find(s => s.id === gm.bettingStrategy)?.label.replace(/^[^\s]+\s/, '') || '')
+    : '';
+  let betStrategies = simulateBettingStrategies(gm.actualResults, INITIAL, gm.betUnit);
+  if (usedSimLabelBJ) {
+    betStrategies = betStrategies.filter(s => s.label !== usedSimLabelBJ);
+  }
   betStrategies.unshift({
-    label: '実際の成績',
-    color: '#fde68a',   // ゴールド系
-    data:  gm.bankrollHistory.slice(0, gm.actualResults.length + 1),
-    dash:  false,
-    risk:  '実績',
+    label:     usedStratName ? `実際の成績 (${usedStratName})` : '実際の成績',
+    color:     '#fde68a',
+    data:      gm.bankrollHistory.slice(0, gm.actualResults.length + 1),
+    dash:      false,
+    risk:      '実績',
     riskColor: '#fde68a',
-    desc: 'あなたが実際に賭けた結果の資金推移',
+    desc:      usedStratName
+      ? `あなたが${usedStratName}で実際に賭けた資金推移`
+      : 'あなたが実際に賭けた結果の資金推移',
   });
 
   const col  = v => v > 0 ? '#4ade80' : v < 0 ? '#f87171' : 'var(--muted)';
@@ -5616,15 +5647,25 @@ function renderBacSummary() {
   const wr    = total > 0 ? Math.round(W / total * 100) : 0;
   const profit = bac.bankroll - cur.initial;
   const pc     = profit >= 0 ? '#4ade80' : '#f87171';
-  const betStrategies = simulateBettingStrategies(bac.actualResults, cur.initial, bac.betUnit);
+  // バカラ専用シミュレーション（バンカーは0.95倍コミッション考慮）
+  const usedSimLabelBAC = STRAT_SIM_LABEL_BAC[bac.bettingStrategy] || null;
+  const usedStratNameBAC = bac.bettingStrategy !== 'manual'
+    ? (BET_STRATEGIES.find(s => s.id === bac.bettingStrategy)?.label.replace(/^[^\s]+\s/, '') || '')
+    : '';
+  let betStrategies = bacSimulateStrategies(bac.actualResults, cur.initial, bac.betUnit, bac.betType || 'banker');
+  if (usedSimLabelBAC) {
+    betStrategies = betStrategies.filter(s => s.label !== usedSimLabelBAC);
+  }
   betStrategies.unshift({
-    label: '実際の成績',
-    color: '#fde68a',
-    data:  bac.bankrollHistory.slice(0, bac.actualResults.length + 1),
-    dash:  false,
-    risk:  '実績',
+    label:     usedStratNameBAC ? `実際の成績 (${usedStratNameBAC})` : '実際の成績',
+    color:     '#fde68a',
+    data:      bac.bankrollHistory.slice(0, bac.actualResults.length + 1),
+    dash:      false,
+    risk:      '実績',
     riskColor: '#fde68a',
-    desc: 'あなたが実際に賭けた結果の資金推移',
+    desc:      usedStratNameBAC
+      ? `あなたが${usedStratNameBAC}で実際に賭けた資金推移`
+      : 'あなたが実際に賭けた結果の資金推移',
   });
 
   $app().innerHTML = `

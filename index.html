@@ -1521,7 +1521,8 @@ function gmCalcNextBet() {
   const won  = last === 'win' || last === 'bj';
   const ss   = gm.stratState;
 
-  if (st === 'manual' || !last) { gm.nextBet = 0; return; }
+  if (st === 'manual') { gm.nextBet = 0; return; }
+  if (!last) { gm.nextBet = unit; return; }  // 初回は1単位
   if (st === 'flat') { gm.nextBet = unit; return; }
 
   if (st === 'paroli') {
@@ -1765,6 +1766,7 @@ function gmFilterCurrencies(q) {
 function startGameMode(currencyCode, betStrat) {
   gmInit(currencyCode || 'JPY');
   gm.bettingStrategy = betStrat || _selectedBetStrat || 'manual';
+  gmCalcNextBet();  // 初回ベットを自動設定
   renderGameScreen();
 }
 
@@ -4189,7 +4191,8 @@ function bacCalcNextBet() {
   const last = bac.actualResults.length > 0 ? bac.actualResults[bac.actualResults.length - 1] : null;
   const won  = last === 'win';
   const ss   = bac.stratState;
-  if (st === 'manual' || !last) { bac.nextBet = 0; return; }
+  if (st === 'manual') { bac.nextBet = 0; return; }
+  if (!last) { bac.nextBet = unit; return; }  // 初回は1単位
   if (st === 'flat') { bac.nextBet = unit; return; }
   if (st === 'paroli') {
     if (!ss.streak) ss.streak = 0;
@@ -4842,6 +4845,7 @@ function bacFilterCurrencies(q) {
 
 function startBacGame(currencyCode, betStrat) {
   bacInit(currencyCode || 'JPY', betStrat || 'manual');
+  bacCalcNextBet();  // 初回ベットを自動設定
   renderBacScreen();
 }
 

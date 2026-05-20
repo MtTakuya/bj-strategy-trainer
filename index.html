@@ -349,6 +349,10 @@
     }
     .card-deal   { animation: fromShoe  .36s cubic-bezier(.15,.85,.3,1.08) both; }
     .card-flip   { animation: flipReveal .32s ease both; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: .5; transform: scale(.8); }
+    }
     .fb-ok  { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.35); }
     .fb-ng  { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.35); }
     .fb-hd  { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
@@ -4286,6 +4290,16 @@ function renderBacHome() {
       </div>
 
       <div class="section">
+        <div class="sec-lbl">シミュレーション</div>
+        <div class="btn-stack">
+          <button class="btn btn-primary" onclick="renderBacSimMode()"
+            style="background:linear-gradient(135deg,#7f1d1d,#ef4444);font-size:17px">
+            📊 シミュレーション
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="sec-lbl">参考情報</div>
         <div class="btn-stack">
           <button class="btn btn-secondary" onclick="renderBacGuide()" style="color:var(--gold)">📋 ルール・期待値ガイド</button>
@@ -5026,15 +5040,201 @@ function bacChipSVG(amount) {
   </svg>`;
 }
 
+let bacCardStyle = 'vertical'; // 'vertical' | 'horizontal' | 'squeeze'
+
+function bacSetStyle(s) {
+  bacCardStyle = s;
+  // 既にリビール中なら再描画
+  if (bac && bac.revealSeq) renderBacReveal();
+  else if (bac) renderBacScreen();
+}
+
 function bacDealAction() {
   if (!bac.betType) return;
-  if (bac.bettingStrategy !== 'manual') {
-    bac.nextBet = bac.nextBet || bac.betUnit;
-  }
+  if (bac.bettingStrategy !== 'manual') bac.nextBet = bac.nextBet || bac.betUnit;
   if (bac.nextBet <= 0) return;
+
+  // カードを全て引いて結果を計算（内部処理は既存のまま）
   bacDeal();
-  bacResolveHand(); // カード確定
-  renderBacHandPlay();
+  bacResolveHand();
+
+  // リビールシーケンスを構築（P1→B1→P2→B2→サードカード順）
+  const seq = ['p0', 'b0', 'p1', 'b1'];
+  if (bac.playerHand.length > 2) seq.push('p2');
+  if (bac.bankerHand.length > 2) seq.push('b2');
+  seq.push('done');
+  bac.revealSeq = seq;
+  // squeeze: idx=0 → 全部裏向き(P1がタップ可能)
+  // auto:    idx=1 → P1をすぐに表示してから自動進行
+  bac.revealIdx = bacCardStyle === 'squeeze' ? 0 : 1;
+
+  renderBacReveal();
+  if (bacCardStyle !== 'squeeze') bacAutoReveal();
+}
+
+// ── Baccarat: Step-by-Step Reveal ─────────────────────────────────
+const BAC_REVEAL_DELAYS = { p0: 400, b0: 450, p1: 450, b1: 600, p2: 750, b2: 750, done: 900 };
+
+function bacAutoReveal() {
+  const step = bac.revealSeq[bac.revealIdx];
+  const delay = BAC_REVEAL_DELAYS[step] || 600;
+  setTimeout(() => {
+    if (!bac || bac.phase !== 'deal') return;
+    bac.revealIdx++;
+    renderBacReveal();
+    if (bac.revealSeq[bac.revealIdx] !== 'done') bacAutoReveal();
+    else setTimeout(() => renderBacHandPlay(), 800);
+  }, delay);
+}
+
+function bacSqueezeReveal() {
+  bac.revealIdx++;
+  renderBacReveal();
+  if (bac.revealSeq[bac.revealIdx] === 'done') {
+    setTimeout(() => renderBacHandPlay(), 900);
+  }
+}
+
+function renderBacReveal() {
+  if (!bac || !bac.revealSeq) return;
+  if (bac.revealSeq[bac.revealIdx] === 'done') { renderBacHandPlay(); return; }
+
+  state.screen = 'bac-play';
+  const fmt   = v => fmtMoney(v, bac.currency);
+  const idx   = bac.revealIdx;
+  const seq   = bac.revealSeq;
+  const isH   = bacCardStyle === 'horizontal';
+  const isSq  = bacCardStyle === 'squeeze';
+
+  // idx番目より小さいインデックスのカードが公開済み（idx=1でP1が見える）
+  const revealedSet = new Set(seq.slice(0, idx));
+  // idx番目のカード＝「いま表示/アニメーション中」
+  const currentKey  = seq[idx];
+
+  const buildRow = (hand, side) =>
+    hand.map((card, i) => {
+      const key  = `${side}${i}`;
+      const shown = revealedSet.has(key);
+      const isNew = currentKey === key;
+
+      if (isNew && !isSq) {
+        // 自動モード: このカードは今アニメーション中で表示
+        const cardHtml = bacCardHTML(card, false, 0);
+        return isH
+          ? cardHtml.replace('<div class="card"', '<div class="card" style="transform:rotate(90deg);transform-origin:center"')
+          : cardHtml;
+      }
+      if (!shown && !isNew) {
+        // 未公開カード
+        const tappable = isSq && currentKey === key;
+        return `<div class="card card-back"
+          onclick="${tappable ? 'bacSqueezeReveal()' : ''}"
+          style="cursor:${tappable?'pointer':'default'};opacity:${tappable?.9:.3};
+                 ${isH?'transform:rotate(90deg)':''};transition:opacity .2s"
+          title="${tappable?'タップして開く':''}">🂠</div>`;
+      }
+      if (isSq && isNew) {
+        // スクイーズ: タップ可能な裏向きカード
+        return `<div class="card card-back"
+          onclick="bacSqueezeReveal()"
+          style="cursor:pointer;opacity:.9;${isH?'transform:rotate(90deg)':''}">🂠</div>`;
+      }
+      // 公開済みカード（アニメーションなし）
+      const cardHtml = bacCardHTML(card, false, -1);
+      return isH
+        ? cardHtml.replace('<div class="card"', '<div class="card" style="transform:rotate(90deg);transform-origin:center"')
+        : cardHtml;
+    }).join('');
+
+  // 現在公開済み（表向きになっている）カードのスコア
+  const pVisKeys = new Set([...Array.from(revealedSet), isSq ? null : currentKey].filter(Boolean));
+  const bVisKeys = pVisKeys;
+  const pScore = bac.playerHand
+    .filter((_, i) => pVisKeys.has(`p${i}`))
+    .reduce((s, c) => s + bacValue(c), 0) % 10;
+  const bScore = bac.bankerHand
+    .filter((_, i) => bVisKeys.has(`b${i}`))
+    .reduce((s, c) => s + bacValue(c), 0) % 10;
+
+  const hasAnyP = bac.playerHand.some((_, i) => pVisKeys.has(`p${i}`));
+  const hasAnyB = bac.bankerHand.some((_, i) => bVisKeys.has(`b${i}`));
+
+  const W = bac.actualResults.filter(r => r === 'win').length;
+  const L = bac.actualResults.filter(r => r === 'loss').length;
+
+  // 現ステップのラベル
+  const stepLabels = { p0:'Player 1枚目', b0:'Banker 1枚目', p1:'Player 2枚目', b1:'Banker 2枚目', p2:'Player 3枚目', b2:'Banker 3枚目' };
+  const curLabel = stepLabels[seq[idx]] || '...';
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <span style="font-size:11px;color:var(--muted)">Hand ${bac.handsPlayed}</span>
+          <span style="font-size:11px;font-weight:700">
+            <span style="color:#4ade80">${W}W</span><span style="color:#f87171"> ${L}L</span>
+          </span>
+        </div>
+        <span style="font-size:12px;font-weight:800;color:var(--gold)">${curLabel}</span>
+        <div style="text-align:right">
+          <div style="font-size:9px;color:var(--muted)">残高</div>
+          <div style="font-size:13px;font-weight:900;color:${bac.bankroll>=bac.currency.initial?'#4ade80':'#f87171'}">
+            ${fmt(bac.bankroll)}
+          </div>
+        </div>
+      </div>
+
+      <!-- カードスタイル切替 -->
+      <div style="display:flex;gap:5px;justify-content:center;margin-bottom:6px">
+        ${[['vertical','↕ 縦'],['horizontal','↔ 横'],['squeeze','👆 スクイーズ']].map(([s,l]) =>
+          `<button onclick="bacSetStyle('${s}')"
+            style="padding:4px 10px;border-radius:100px;font-size:10px;font-weight:700;
+                   border:1px solid ${bacCardStyle===s?'var(--gold)':'var(--border)'};
+                   background:${bacCardStyle===s?'rgba(201,162,39,.15)':'var(--surface2)'};
+                   color:${bacCardStyle===s?'var(--gold)':'var(--muted)'};cursor:pointer">${l}</button>`
+        ).join('')}
+      </div>
+
+      <div class="felt-table" style="padding:10px 12px">
+        <div style="margin-bottom:4px">
+          <div class="zone-lbl">
+            🏦 BANKER
+            ${hasAnyB ? `<span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:14px;font-weight:900;margin-left:6px">${bScore}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;justify-content:center;${isH?'align-items:center;flex-wrap:wrap':''}">
+            ${buildRow(bac.bankerHand, 'b')}
+          </div>
+        </div>
+        <hr class="felt-divider" style="margin:8px 0">
+        <div>
+          <div class="zone-lbl">
+            👤 PLAYER
+            ${hasAnyP ? `<span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:14px;font-weight:900;margin-left:6px">${pScore}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;justify-content:center;${isH?'align-items:center;flex-wrap:wrap':''}">
+            ${buildRow(bac.playerHand, 'p')}
+          </div>
+        </div>
+      </div>
+
+      ${isSq ? `
+      <div style="text-align:center;padding:12px 0;font-size:13px;color:var(--muted)">
+        📌 カードをタップして開けてください
+      </div>` : `
+      <div style="text-align:center;padding:12px 0;display:flex;align-items:center;justify-content:center;gap:6px">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--gold);animation:pulse 1s infinite"></span>
+        <span style="font-size:12px;color:var(--muted)">配布中...</span>
+      </div>`}
+
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <div style="flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+          <div style="font-size:9px;color:var(--muted)">賭け先</div>
+          <div style="font-size:13px;font-weight:700;color:${bac.betType==='banker'?'#4ade80':bac.betType==='player'?'#60a5fa':'#fbbf24'}">
+            ${(bac.betType||'').toUpperCase()} × ${fmt(bac.currentBet)}
+          </div>
+        </div>
+      </div>
+    </div>`;
 }
 
 // ── Baccarat: Hand Play Screen ────────────────────────────────────
@@ -5234,6 +5434,304 @@ function renderBacSummary() {
         <button class="btn btn-ghost" onclick="renderTopMenu()">ゲーム選択へ</button>
       </div>
     </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BACCARAT — Simulation Mode
+// ═══════════════════════════════════════════════════════════════
+
+// バカラの確率（8デッキ）
+const BAC_HAND_PROBS = { banker: 0.4586, player: 0.4462, tie: 0.0952 };
+
+function bacSimDraw() {
+  const r = Math.random();
+  if (r < BAC_HAND_PROBS.banker) return 'banker';
+  if (r < BAC_HAND_PROBS.banker + BAC_HAND_PROBS.player) return 'player';
+  return 'tie';
+}
+
+// 賭け先に応じた結果変換
+function bacSimOutcome(handResult, betType) {
+  if (handResult === 'tie') return betType === 'tie' ? 'win' : 'push';
+  return handResult === betType ? 'win' : 'loss';
+}
+
+// バカラ用ベッティング戦略シミュレーション（コミッション対応）
+function bacSimulateStrategies(handResults, initial, betUnit, betType) {
+  // バカラ専用apply: bankerは0.95倍払い、tieは8倍払い
+  const payout = betType === 'banker' ? 0.95 : betType === 'tie' ? 8 : 1;
+  function apply(br, r, bet) {
+    if (r === 'win') return br + Math.floor(bet * payout);
+    if (r === 'loss') return br - bet;
+    return br; // push
+  }
+  function run(stratFn) {
+    let br = initial;
+    const h = [br];
+    const state = {};
+    for (const r of handResults) {
+      if (br <= 0) { h.push(0); continue; }
+      const bet = Math.min(stratFn(state, r, br, betUnit), br);
+      br = Math.max(0, apply(br, r, bet));
+      h.push(br);
+    }
+    return h;
+  }
+
+  // 各戦略
+  const strategies = [
+    { label:'フラット', color:'#94a3b8', fn: (s, r, br, u) => { s.bet=s.bet||u; return s.bet; } },
+    { label:'パーレー法', color:'#4ade80', fn: (s, r, br, u) => {
+      if (s.streak===undefined){s.streak=0;s.bet=u;}
+      if(r==='win'){s.streak++;s.bet=s.streak>=3?u:Math.min(s.bet*2,u*8);if(s.streak>=3)s.streak=0;}
+      else if(r==='loss'){s.streak=0;s.bet=u;}
+      return s.bet;
+    }},
+    { label:'グランベール(1-3-2-6)', color:'#f59e0b', fn: (s, r, br, u) => {
+      const seq=[1,3,2,6];if(s.step===undefined)s.step=0;
+      const bet=u*seq[s.step];
+      if(r==='win')s.step=(s.step+1)%seq.length;else s.step=0;
+      return bet;
+    }},
+    { label:"D'Alembert", color:'#60a5fa', fn: (s, r, br, u) => {
+      if(!s.bet)s.bet=u;
+      const b=s.bet;
+      if(r==='win')s.bet=Math.max(u,s.bet-u);else if(r==='loss')s.bet+=u;
+      return b;
+    }},
+    { label:'マーチンゲール', color:'#f87171', fn: (s, r, br, u) => {
+      const cap=Math.min(u*32,Math.floor(initial/2));
+      if(!s.bet)s.bet=u;const b=Math.min(s.bet,cap,br);
+      if(r==='win')s.bet=u;else if(r==='loss')s.bet=Math.min(s.bet*2,cap);
+      return b;
+    }},
+    { label:'フィボナッチ', color:'#c084fc', fn: (s, r, br, u) => {
+      const fib=[1,1,2,3,5,8,13,21,34,55];if(!s.i)s.i=0;
+      const b=u*fib[Math.min(s.i,fib.length-1)];
+      if(r==='win')s.i=Math.max(0,s.i-2);else if(r==='loss')s.i=Math.min(s.i+1,fib.length-1);
+      return b;
+    }},
+    { label:'ラブシェール', color:'#fb923c', fn: (s, r, br, u) => {
+      if(!s.line||s.line.length===0)s.line=[1,2,3,4];
+      const bm=s.line.length===1?s.line[0]:s.line[0]+s.line[s.line.length-1];
+      const b=u*bm;
+      if(r==='win'){s.line=s.line.slice(1,-1);if(s.line.length===0)s.line=[1,2,3,4];}
+      else s.line=[...s.line,bm];
+      return b;
+    }},
+  ];
+
+  return strategies.map(({label, color, fn}) => ({
+    label, color,
+    data: run(fn),
+    dash: false,
+    risk: '', riskColor: color, desc: '',
+  }));
+}
+
+let bacSimCfg = { strategy: 'フラット', hands: 50, initial: 100000, betUnit: 10000, betType: 'banker' };
+
+function renderBacSimMode() {
+  state.screen = 'bac-sim';
+  const c = bacSimCfg;
+  const betTypeColors = { banker:'#4ade80', player:'#60a5fa', tie:'#fbbf24' };
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <button class="btn btn-ghost btn-sm" onclick="renderBacHome()">← バカラ</button>
+        <span style="font-size:14px;font-weight:800;color:#ef4444">📊 バカラシミュレーション</span>
+        <div style="width:80px"></div>
+      </div>
+
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:14px">
+        賭け先・戦略を設定して<strong style="color:var(--text)">3,000回</strong>試行した結果分布を表示します。<br>
+        <span style="color:#4ade80;font-size:11px">✓ 8デッキ確率モデル（バンカー45.86% / プレイヤー44.62% / タイ9.52%）</span>
+      </div>
+
+      <!-- 賭け先選択 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">賭け先</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          ${[['banker','BANKER (1.06%)','#4ade80'],['player','PLAYER (1.24%)','#60a5fa'],['tie','TIE (14.4%)','#fbbf24']].map(([t,l,col]) => `
+            <button onclick="bacSimCfg.betType='${t}';renderBacSimMode()"
+              style="flex:1;padding:10px 4px;border-radius:12px;border:2px solid ${c.betType===t?col:'var(--border)'};
+                     background:${c.betType===t?`rgba(${t==='banker'?'74,222,128':t==='player'?'96,165,250':'251,191,36'},.12)`:'var(--surface2)'};
+                     cursor:pointer;color:inherit">
+              <div style="font-size:12px;font-weight:800;color:${col}">${l}</div>
+            </button>`).join('')}
+        </div>
+      </div>
+
+      <!-- 戦略選択 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">ベッティング戦略</div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+          ${['フラット','パーレー法','グランベール(1-3-2-6)',"D'Alembert",'マーチンゲール','フィボナッチ','ラブシェール'].map(s => `
+            <button onclick="bacSimCfg.strategy='${s}';renderBacSimMode()"
+              class="btn ${c.strategy===s?'btn-primary':'btn-secondary'}"
+              style="text-align:left;font-size:13px;padding:10px 14px">${s}</button>`).join('')}
+        </div>
+      </div>
+
+      <!-- ハンド数 -->
+      <div class="info-card" style="margin-bottom:12px">
+        <div class="info-ttl">ハンド数</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${[10,20,50,100,200].map(n => `
+            <button onclick="bacSimCfg.hands=${n};renderBacSimMode()"
+              class="btn ${c.hands===n?'btn-primary':'btn-secondary'}"
+              style="flex:1;min-width:48px;font-size:14px;padding:10px 0">${n}</button>`).join('')}
+        </div>
+      </div>
+
+      <!-- 資金設定 -->
+      <div class="info-card" style="margin-bottom:16px">
+        <div class="info-ttl">資金設定</div>
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">スタート資金</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${[50000,100000,200000,500000,1000000].map(v => `
+              <button onclick="bacSimCfg.initial=${v};renderBacSimMode()"
+                class="btn ${c.initial===v?'btn-primary':'btn-secondary'}"
+                style="flex:1;min-width:52px;font-size:12px;padding:8px 0">
+                ${v>=10000?(v/10000)+'万':'¥'+v.toLocaleString()}
+              </button>`).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">1ハンドのベット額</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${[5000,10000,20000,50000].map(v => `
+              <button onclick="bacSimCfg.betUnit=${v};renderBacSimMode()"
+                class="btn ${c.betUnit===v?'btn-primary':'btn-secondary'}"
+                style="flex:1;min-width:60px;font-size:12px;padding:8px 0">
+                ${v >= 10000 ? (v/10000)+'万' : v.toLocaleString()+'円'}
+              </button>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" style="font-size:16px;padding:16px;background:linear-gradient(135deg,#991b1b,#ef4444)"
+        onclick="runBacSimulation()">
+        ▶ シミュレート実行（3,000回）
+      </button>
+      <div class="disclaimer">確率モデルによる推定。実際の結果とは異なります。</div>
+    </div>`;
+}
+
+function runBacSimulation() {
+  const { strategy, hands, initial, betUnit, betType } = bacSimCfg;
+  const TRIALS = 3000;
+  $app().innerHTML = `
+    <div class="screen" style="align-items:center;justify-content:center;display:flex;flex-direction:column;min-height:60vh">
+      <div style="font-size:32px;margin-bottom:12px">⏳</div>
+      <div style="font-size:15px;font-weight:700">シミュレーション中…</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">${TRIALS}回 × ${hands}ハンド</div>
+    </div>`;
+
+  setTimeout(() => {
+    const finals = [];
+    for (let i = 0; i < TRIALS; i++) {
+      const handResults = Array.from({ length: hands }, () => bacSimOutcome(bacSimDraw(), betType));
+      const series = bacSimulateStrategies(handResults, initial, betUnit, betType);
+      const s = series.find(s => s.label === strategy) || series[0];
+      finals.push(s.data[s.data.length - 1]);
+    }
+    finals.sort((a, b) => a - b);
+
+    const pct  = p => finals[Math.floor(p * (TRIALS - 1))];
+    const p05  = pct(0.05), p25 = pct(0.25), p50 = pct(0.50), p75 = pct(0.75), p95 = pct(0.95);
+    const mean = finals.reduce((s, v) => s + v, 0) / TRIALS;
+    const profitPct  = finals.filter(v => v > initial).length / TRIALS * 100;
+    const ruinPct    = finals.filter(v => v <= 0).length / TRIALS * 100;
+    const medianROI  = (p50 - initial) / initial * 100;
+    const profit     = mean - initial;
+    const pc         = profit >= 0 ? '#4ade80' : '#f87171';
+    const roiC       = medianROI >= 0 ? '#4ade80' : '#f87171';
+
+    // ヒストグラム
+    const minF = finals[0], maxF = finals[TRIALS-1];
+    const buckets = 20;
+    const bw = (maxF - minF) / buckets || betUnit;
+    const hist = Array(buckets).fill(0);
+    finals.forEach(v => { const bi = Math.min(buckets-1, Math.floor((v-minF)/bw)); hist[bi]++; });
+    const maxH = Math.max(...hist);
+
+    const betColors = { banker:'#4ade80', player:'#60a5fa', tie:'#fbbf24' };
+    const betCol = betColors[betType] || 'var(--gold)';
+
+    $app().innerHTML = `
+      <div class="screen">
+        <div class="topbar">
+          <button class="btn btn-ghost btn-sm" onclick="renderBacSimMode()">← 設定</button>
+          <span style="font-size:13px;font-weight:800;color:#ef4444">バカラ結果</span>
+          <button class="btn btn-ghost btn-sm" onclick="renderBacHome()">バカラ</button>
+        </div>
+
+        <div style="font-size:12px;font-weight:700;text-align:center;margin-bottom:8px">
+          <span style="color:${betCol}">${betType.toUpperCase()}</span>
+          <span style="color:var(--muted);margin:0 4px">×</span>
+          <span style="color:var(--gold)">${strategy}</span>
+          <span style="color:var(--muted);margin:0 4px">/</span>
+          <span>${hands}ハンド</span>
+        </div>
+
+        <!-- ヒストグラム -->
+        <div class="info-card" style="margin-bottom:12px;padding:12px 10px">
+          <div class="info-ttl">最終資金の分布（${TRIALS}回）</div>
+          ${renderSimHistogram(hist, minF, maxF, bw, initial, maxH)}
+        </div>
+
+        <!-- パーセンタイル -->
+        <div class="info-card" style="margin-bottom:12px">
+          <div class="info-ttl">パーセンタイル分布</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+            ${[['最悪5%',p05],['下位25%',p25],['中央値',p50],['上位25%',p75],['最良5%',p95],['平均',mean]].map(([lbl,v]) => {
+              const d = v-initial, dc = d>0?'#4ade80':d<0?'#f87171':'var(--muted)';
+              return `<div style="background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+                <div style="font-size:9px;color:var(--muted)">${lbl}</div>
+                <div style="font-size:13px;font-weight:800;color:${dc}">¥${Math.round(v).toLocaleString()}</div>
+                <div style="font-size:9px;color:${dc}">${d>=0?'+':''}${Math.round(d/initial*100)}%</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- サマリー -->
+        <div class="info-card" style="margin-bottom:12px">
+          <div class="info-ttl">サマリー</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--muted)">期待値（平均損益）</div>
+              <div style="font-size:15px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit).toLocaleString()}</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--muted)">期待ROI（中央値）</div>
+              <div style="font-size:15px;font-weight:900;color:${roiC}">${medianROI>=0?'+':''}${medianROI.toFixed(1)}%</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--muted)">黒字確率</div>
+              <div style="font-size:15px;font-weight:900;color:${profitPct>=50?'#4ade80':'#f87171'}">${profitPct.toFixed(1)}%</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:var(--muted)">資金枯渇リスク</div>
+              <div style="font-size:15px;font-weight:900;color:${ruinPct>5?'#f87171':ruinPct>0?'#fbbf24':'#4ade80'}">${ruinPct.toFixed(1)}%</div>
+            </div>
+            <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:10px;text-align:center;grid-column:span 2">
+              <div style="font-size:9px;color:var(--muted)">EV/ハンド</div>
+              <div style="font-size:15px;font-weight:900;color:${pc}">${profit>=0?'+':''}¥${Math.round(profit/hands).toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-stack">
+          <button class="btn btn-primary" style="background:linear-gradient(135deg,#991b1b,#ef4444)"
+            onclick="runBacSimulation()">もう一度実行</button>
+          <button class="btn btn-secondary" onclick="renderBacSimMode()">設定を変える</button>
+        </div>
+        <div class="disclaimer">確率モデルによる推定。</div>
+      </div>`;
+  }, 50);
 }
 
 // ═══════════════════════════════════════════════════════════════

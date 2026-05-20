@@ -353,6 +353,15 @@
       0%, 100% { opacity: 1; transform: scale(1); }
       50%       { opacity: .5; transform: scale(.8); }
     }
+    @keyframes sqPulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(201,162,39,.5), 0 0 0 0 rgba(201,162,39,0); }
+      50%       { box-shadow: 0 0 0 2px rgba(201,162,39,.9), 0 0 16px 6px rgba(201,162,39,.3); }
+    }
+    .sq-tappable {
+      animation: sqPulse 1.4s ease-in-out infinite;
+      border-radius: 10px;
+      cursor: pointer;
+    }
     .fb-ok  { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.35); }
     .fb-ng  { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.35); }
     .fb-hd  { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
@@ -5040,13 +5049,14 @@ function bacChipSVG(amount) {
   </svg>`;
 }
 
-let bacCardStyle = 'vertical'; // 'vertical' | 'horizontal' | 'squeeze'
+let bacCardStyle  = 'vertical'; // 'vertical' | 'horizontal' | 'squeeze'
+let bacSqueezeCfg = { group: 'single' }; // 'single' | 'side'
 
 function bacSetStyle(s) {
   bacCardStyle = s;
-  // 既にリビール中なら再描画
-  if (bac && bac.revealSeq) renderBacReveal();
-  else if (bac) renderBacScreen();
+  if (bac && bac.freeRevealed !== undefined) renderBacFreeSqueezeScreen();
+  else if (bac && bac.revealSeq)             renderBacReveal();
+  else if (bac)                              renderBacScreen();
 }
 
 function bacDealAction() {
@@ -5054,29 +5064,33 @@ function bacDealAction() {
   if (bac.bettingStrategy !== 'manual') bac.nextBet = bac.nextBet || bac.betUnit;
   if (bac.nextBet <= 0) return;
 
-  // カードを全て引いて結果を計算（内部処理は既存のまま）
   bacDeal();
   bacResolveHand();
 
-  // リビールシーケンスを構築（P1→B1→P2→B2→サードカード順）
-  const seq = ['p0', 'b0', 'p1', 'b1'];
-  if (bac.playerHand.length > 2) seq.push('p2');
-  if (bac.bankerHand.length > 2) seq.push('b2');
-  seq.push('done');
-  bac.revealSeq = seq;
-  // squeeze: idx=0 → 全部裏向き(P1がタップ可能)
-  // auto:    idx=1 → P1をすぐに表示してから自動進行
-  bac.revealIdx = bacCardStyle === 'squeeze' ? 0 : 1;
-
-  renderBacReveal();
-  if (bacCardStyle !== 'squeeze') bacAutoReveal();
+  if (bacCardStyle === 'squeeze') {
+    // ── スクイーズモード: 自由順番でタップして公開 ──────────────
+    bac.freeRevealed    = new Set();
+    bac.squeezeDoneShown = false;
+    renderBacFreeSqueezeScreen();
+  } else {
+    // ── 自動公開モード（縦/横）──────────────────────────────────
+    const seq = ['p0', 'b0', 'p1', 'b1'];
+    if (bac.playerHand.length > 2) seq.push('p2');
+    if (bac.bankerHand.length > 2) seq.push('b2');
+    seq.push('done');
+    bac.revealSeq = seq;
+    bac.revealIdx = 1;
+    renderBacReveal();
+    bacAutoReveal();
+  }
 }
 
-// ── Baccarat: Step-by-Step Reveal ─────────────────────────────────
+// ── Auto-reveal (縦/横モード) ─────────────────────────────────────
 const BAC_REVEAL_DELAYS = { p0: 400, b0: 450, p1: 450, b1: 600, p2: 750, b2: 750, done: 900 };
 
 function bacAutoReveal() {
-  const step = bac.revealSeq[bac.revealIdx];
+  if (bacCardStyle === 'squeeze') return;
+  const step  = bac.revealSeq[bac.revealIdx];
   const delay = BAC_REVEAL_DELAYS[step] || 600;
   setTimeout(() => {
     if (!bac || bac.phase !== 'deal') return;
@@ -5087,16 +5101,255 @@ function bacAutoReveal() {
   }, delay);
 }
 
-function bacSqueezeReveal() {
-  bac.revealIdx++;
-  renderBacReveal();
-  if (bac.revealSeq[bac.revealIdx] === 'done') {
-    setTimeout(() => renderBacHandPlay(), 900);
+// ── Squeeze Mode: Free-Order Reveal ──────────────────────────────
+function _bacFlipCard(key, delayMs = 0) {
+  const inner = document.getElementById('sqin-' + key);
+  if (!inner) return;
+  setTimeout(() => { inner.style.transform = 'rotateY(180deg)'; }, delayMs);
+}
+
+function bacFreeReveal(key) {
+  if (!bac || !bac.freeRevealed || bac.freeRevealed.has(key)) return;
+  bac.freeRevealed.add(key);
+  _bacFlipCard(key);
+  setTimeout(() => {
+    bacUpdateSqueezeTappable();
+    bacCheckSqueezeComplete();
+  }, 900);
+}
+
+function bacSideReveal(side) {
+  if (!bac || !bac.freeRevealed) return;
+  const hand = side === 'p' ? bac.playerHand : bac.bankerHand;
+  hand.forEach((_, i) => {
+    const k = `${side}${i}`;
+    // 初期カード（0,1）のみ。サードカード(2)は別途
+    if (i < 2 && !bac.freeRevealed.has(k)) {
+      bac.freeRevealed.add(k);
+      _bacFlipCard(k, i * 200); // 少しずらしてめくる
+    }
+  });
+  setTimeout(() => {
+    bacUpdateSqueezeTappable();
+    bacCheckSqueezeComplete();
+  }, 900 + (hand.length > 1 ? 200 : 0));
+}
+
+function bacUpdateSqueezeTappable() {
+  if (!bac || !bac.freeRevealed) return;
+  const revealed = bac.freeRevealed;
+  const allInit  = ['p0','b0','p1','b1'].every(k => revealed.has(k));
+
+  // 全スロットのハイライトをリセット
+  ['p0','p1','p2','b0','b1','b2'].forEach(k => {
+    const el = document.getElementById('sq-' + k);
+    if (el) {
+      el.classList.remove('sq-tappable');
+      el.removeAttribute('onclick');
+      el.style.cursor = 'default';
+    }
+  });
+
+  const setTappable = (key, fn) => {
+    const el = document.getElementById('sq-' + key);
+    if (!el || revealed.has(key)) return;
+    el.classList.add('sq-tappable');
+    el.setAttribute('onclick', fn);
+    el.style.cursor = 'pointer';
+  };
+
+  if (bacSqueezeCfg.group === 'single') {
+    // 各カードを個別にタップ可能
+    ['p0','b0','p1','b1'].forEach(k => setTappable(k, `bacFreeReveal('${k}')`));
+    if (allInit) {
+      if (bac.playerHand.length > 2) setTappable('p2', "bacFreeReveal('p2')");
+      if (bac.bankerHand.length > 2) setTappable('b2', "bacFreeReveal('b2')");
+    }
+  } else {
+    // サイドまとめてタップ
+    if (!revealed.has('p0') || !revealed.has('p1')) {
+      ['p0','p1'].forEach(k => setTappable(k, "bacSideReveal('p')"));
+    }
+    if (!revealed.has('b0') || !revealed.has('b1')) {
+      ['b0','b1'].forEach(k => setTappable(k, "bacSideReveal('b')"));
+    }
+    if (allInit) {
+      if (bac.playerHand.length > 2) setTappable('p2', "bacFreeReveal('p2')");
+      if (bac.bankerHand.length > 2) setTappable('b2', "bacFreeReveal('b2')");
+    }
   }
+}
+
+function bacCheckSqueezeComplete() {
+  if (!bac || !bac.freeRevealed || bac.squeezeDoneShown) return;
+  const r = bac.freeRevealed;
+  const initOk = ['p0','b0','p1','b1'].every(k => r.has(k));
+  const p3ok   = bac.playerHand.length <= 2 || r.has('p2');
+  const b3ok   = bac.bankerHand.length <= 2 || r.has('b2');
+  if (initOk && p3ok && b3ok) {
+    bac.squeezeDoneShown = true;
+    setTimeout(() => renderBacHandPlay(), 800);
+  }
+}
+
+function renderBacFreeSqueezeScreen() {
+  state.screen = 'bac-play';
+  const fmt     = v => fmtMoney(v, bac.currency);
+  const revealed = bac.freeRevealed || new Set();
+  const allInit  = ['p0','b0','p1','b1'].every(k => revealed.has(k));
+
+  // タップ可能カードを決定
+  const tappable = new Set();
+  if (bacSqueezeCfg.group === 'single') {
+    ['p0','b0','p1','b1'].forEach(k => { if (!revealed.has(k)) tappable.add(k); });
+    if (allInit) {
+      if (bac.playerHand.length > 2 && !revealed.has('p2')) tappable.add('p2');
+      if (bac.bankerHand.length > 2 && !revealed.has('b2')) tappable.add('b2');
+    }
+  } else {
+    if (!revealed.has('p0') || !revealed.has('p1')) { tappable.add('p0'); tappable.add('p1'); }
+    if (!revealed.has('b0') || !revealed.has('b1')) { tappable.add('b0'); tappable.add('b1'); }
+    if (allInit) {
+      if (bac.playerHand.length > 2 && !revealed.has('p2')) tappable.add('p2');
+      if (bac.bankerHand.length > 2 && !revealed.has('b2')) tappable.add('b2');
+    }
+  }
+
+  // フリップカード HTML を生成
+  // 全面公開せず: 裏面HTML + 表面HTML を重ねて CSS flip で見せる
+  const sqCard = (card, key) => {
+    const isRevd   = revealed.has(key);
+    const isTap    = tappable.has(key);
+    const clickFn  = bacSqueezeCfg.group === 'side' && (key==='p0'||key==='p1') ? `bacSideReveal('p')`
+                   : bacSqueezeCfg.group === 'side' && (key==='b0'||key==='b1') ? `bacSideReveal('b')`
+                   : `bacFreeReveal('${key}')`;
+    const tapHint  = isTap ? `<div style="position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--gold);white-space:nowrap">${bacSqueezeCfg.group==='side'?'サイド':'タップ'}</div>` : '';
+    return `
+      <div style="display:inline-block;position:relative;margin-bottom:18px">
+        <div id="sq-${key}"
+          class="${isTap && !isRevd ? 'sq-tappable' : ''}"
+          onclick="${isTap && !isRevd ? clickFn : ''}"
+          style="display:inline-block;perspective:600px">
+          <div id="sqin-${key}"
+            style="display:inline-block;position:relative;
+                   transform-style:preserve-3d;
+                   transition:transform .85s cubic-bezier(.25,.46,.45,.94);
+                   ${isRevd ? 'transform:rotateY(180deg);' : ''}">
+            <!-- 裏面 -->
+            <div style="backface-visibility:hidden;-webkit-backface-visibility:hidden">
+              <div class="card card-back" style="animation:none">🂠</div>
+            </div>
+            <!-- 表面（常にDOMに存在するが裏向きで隠れている） -->
+            <div style="position:absolute;inset:0;
+                        transform:rotateY(180deg);
+                        backface-visibility:hidden;-webkit-backface-visibility:hidden;
+                        overflow:hidden;border-radius:8px">
+              ${bacCardHTML(card, false, -1)}
+            </div>
+          </div>
+        </div>
+        ${isTap && !isRevd ? tapHint : ''}
+      </div>`;
+  };
+
+  const sideScore = (hand, side) => hand
+    .filter((_, i) => revealed.has(`${side}${i}`))
+    .reduce((s, c) => s + bacValue(c), 0) % 10;
+
+  const hasRevealedSide = (side) => [0,1,2].some(i => revealed.has(`${side}${i}`));
+
+  const pScore = sideScore(bac.playerHand, 'p');
+  const bScore = sideScore(bac.bankerHand, 'b');
+
+  const W = bac.actualResults.filter(r => r === 'win').length;
+  const L = bac.actualResults.filter(r => r === 'loss').length;
+  const totalTap  = tappable.size - [...tappable].filter(k => revealed.has(k)).length;
+  const instruction = revealed.size === 0
+    ? (bacSqueezeCfg.group === 'side' ? '🃏 サイドをタップして一気に公開' : '🃏 カードをタップして順番に公開')
+    : totalTap > 0
+      ? `残り ${totalTap} 枚 — タップして公開`
+      : allInit ? '🎴 全初期カード公開済み' : '';
+
+  $app().innerHTML = `
+    <div class="screen">
+      <div class="topbar">
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <span style="font-size:11px;color:var(--muted)">Hand ${bac.handsPlayed}</span>
+          <span style="font-size:11px;font-weight:700">
+            <span style="color:#4ade80">${W}W</span><span style="color:#f87171"> ${L}L</span>
+          </span>
+        </div>
+        <span style="font-size:13px;font-weight:800;color:var(--gold)">スクイーズ</span>
+        <div style="text-align:right">
+          <div style="font-size:9px;color:var(--muted)">残高</div>
+          <div style="font-size:13px;font-weight:900;color:${bac.bankroll>=bac.currency.initial?'#4ade80':'#f87171'}">
+            ${fmt(bac.bankroll)}
+          </div>
+        </div>
+      </div>
+
+      <!-- スタイル切替 -->
+      <div style="display:flex;gap:4px;justify-content:center;margin-bottom:4px;flex-wrap:wrap">
+        ${[['vertical','↕ 縦'],['horizontal','↔ 横'],['squeeze','👆 スクイーズ']].map(([s,l]) =>
+          `<button onclick="bacSetStyle('${s}')"
+            style="padding:4px 10px;border-radius:100px;font-size:10px;font-weight:700;
+                   border:1px solid ${bacCardStyle===s?'var(--gold)':'var(--border)'};
+                   background:${bacCardStyle===s?'rgba(201,162,39,.15)':'var(--surface2)'};
+                   color:${bacCardStyle===s?'var(--gold)':'var(--muted)'};cursor:pointer">${l}</button>`
+        ).join('')}
+      </div>
+      <!-- 捲り方 -->
+      <div style="display:flex;gap:6px;justify-content:center;align-items:center;margin-bottom:8px">
+        <span style="font-size:10px;color:var(--muted)">捲り方：</span>
+        ${[['single','1枚ずつ'],['side','片側まとめて']].map(([g,l]) =>
+          `<button onclick="bacSqueezeCfg.group='${g}';renderBacFreeSqueezeScreen()"
+            style="padding:5px 12px;border-radius:100px;font-size:11px;font-weight:700;
+                   border:1px solid ${bacSqueezeCfg.group===g?'var(--gold)':'var(--border)'};
+                   background:${bacSqueezeCfg.group===g?'rgba(201,162,39,.15)':'var(--surface2)'};
+                   color:${bacSqueezeCfg.group===g?'var(--gold)':'var(--muted)'};cursor:pointer">${l}</button>`
+        ).join('')}
+      </div>
+
+      <div class="felt-table" style="padding:10px 14px">
+        <!-- BANKER -->
+        <div style="margin-bottom:4px">
+          <div class="zone-lbl" style="color:#4ade80">
+            🏦 BANKER
+            ${hasRevealedSide('b') ? `<span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:14px;font-weight:900;margin-left:6px">${bScore}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;justify-content:center;align-items:flex-start">
+            ${bac.bankerHand.map((c, i) => sqCard(c, `b${i}`)).join('')}
+          </div>
+        </div>
+        <hr class="felt-divider" style="margin:4px 0">
+        <!-- PLAYER -->
+        <div>
+          <div class="zone-lbl" style="color:#60a5fa">
+            👤 PLAYER
+            ${hasRevealedSide('p') ? `<span style="background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-size:14px;font-weight:900;margin-left:6px">${pScore}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;justify-content:center;align-items:flex-start">
+            ${bac.playerHand.map((c, i) => sqCard(c, `p${i}`)).join('')}
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;padding:10px 0;font-size:12px;color:var(--muted)">${instruction}</div>
+
+      <div style="display:flex;gap:8px">
+        <div style="flex:1;background:rgba(255,255,255,.04);border-radius:10px;padding:8px;text-align:center">
+          <div style="font-size:9px;color:var(--muted)">賭け先 / ベット</div>
+          <div style="font-size:13px;font-weight:700;color:${bac.betType==='banker'?'#4ade80':bac.betType==='player'?'#60a5fa':'#fbbf24'}">
+            ${(bac.betType||'').toUpperCase()} × ${fmt(bac.currentBet)}
+          </div>
+        </div>
+      </div>
+    </div>`;
 }
 
 function renderBacReveal() {
   if (!bac || !bac.revealSeq) return;
+  if (bacCardStyle === 'squeeze') { renderBacFreeSqueezeScreen(); return; }
   if (bac.revealSeq[bac.revealIdx] === 'done') { renderBacHandPlay(); return; }
 
   state.screen = 'bac-play';

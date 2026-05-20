@@ -1407,9 +1407,11 @@ function gmInit(currencyCode) {
     // 資金システム
     currency:         cur,
     bankroll:         cur.initial,
-    betUnit:          cur.bet,       // 基本単位（変更なし）
-    currentHandBet:   cur.bet,       // 今ハンドの実際のベット額
-    nextBet:          cur.bet,       // 次ハンドの予約ベット額
+    betUnit:          cur.bet,
+    currentHandBet:   cur.bet,
+    nextBet:          0,             // チップ加算式（0スタート）
+    lastHandBet:      cur.bet,       // 「前回と同じ」用
+    phase:            'bet',         // 'bet' | 'play'
     bankrollHistory:  [cur.initial],
     lastDelta:        0,
   };
@@ -1422,9 +1424,9 @@ function gmDraw() {
   return gm.shoe[gm.idx++];
 }
 function gmDeal() {
-  gm.currentHandBet = gm.nextBet || gm.betUnit;  // ベット額確定
-  gm.lastHandBet    = gm.currentHandBet;           // 「前回と同じ」用に保存
-  gm.nextBet        = 0;                           // 次のベット選択はクリア状態から
+  gm.currentHandBet = gm.nextBet || gm.betUnit;
+  gm.lastHandBet    = gm.currentHandBet;
+  gm.phase          = 'play';
   const p1 = gmDraw(), d1 = gmDraw(), p2 = gmDraw(), d2 = gmDraw();
   gm.snapIdx    = gm.idx;
   gm.snapPlayer = [p1, p2];
@@ -1560,12 +1562,102 @@ function gmFilterCurrencies(q) {
 
 function startGameMode(currencyCode) {
   gmInit(currencyCode || 'JPY');
-  renderBetSelect();  // 最初もベット選択から
+  renderGameScreen();
 }
 
-// ── Render: Active Hand ──────────────────────────────────────────
-function renderGameHand() {
+// ── Unified Game Screen (bet phase + play phase) ─────────────────
+function renderGameScreen() {
   state.screen = 'game';
+  const isBetPhase = gm.phase === 'bet';
+  const W = gm.actualResults.filter(r=>r==='win'||r==='bj').length;
+  const L = gm.actualResults.filter(r=>r==='loss').length;
+  const cur2 = gm.currency;
+  const fmt2 = v => fmtMoney(v, cur2);
+
+  /* ── BET PHASE ── */
+  if (isBetPhase) {
+    const denoms   = gmChipDenoms();
+    const canDeal  = gm.nextBet > 0 && gm.nextBet <= gm.bankroll;
+
+    // 空のカードスロット（配られる前の状態）
+    const emptySlot = `<div style="width:80px;height:108px;border:2px dashed rgba(255,255,255,.15);
+      border-radius:12px;background:rgba(0,0,0,.2);display:flex;align-items:center;
+      justify-content:center;font-size:24px;color:rgba(255,255,255,.1)">🂠</div>`;
+
+    $app().innerHTML = `
+      <div class="screen">
+        <div class="topbar">
+          <div style="display:flex;flex-direction:column;gap:1px">
+            <span style="font-size:11px;color:var(--muted)">Hand ${gm.handsPlayed+1}</span>
+            <span style="font-size:11px;font-weight:700">
+              <span style="color:#4ade80">${W}W</span><span style="color:#f87171"> ${L}L</span>
+            </span>
+          </div>
+          <span style="font-size:15px;font-weight:900;color:var(--gold)">PLACE BET</span>
+          <div style="text-align:right">
+            <div style="font-size:9px;color:var(--muted)">残高</div>
+            <div style="font-size:14px;font-weight:900;color:${gm.bankroll>=cur2.initial?'#4ade80':gm.bankroll>=cur2.initial*.7?'var(--gold)':'#f87171'}">
+              ${fmt2(gm.bankroll)}
+            </div>
+          </div>
+        </div>
+
+        <div class="felt-table">
+          <!-- 空テーブル: ディーラーゾーン -->
+          <div class="dealer-zone">
+            <div class="zone-lbl">🎩 Dealer</div>
+            <div style="display:flex;gap:6px;justify-content:center;opacity:.4">
+              ${emptySlot}${emptySlot}
+            </div>
+          </div>
+
+          <hr class="felt-divider">
+
+          <!-- ベットサークル -->
+          <div style="display:flex;flex-direction:column;align-items:center;padding:10px 0 6px">
+            <div class="zone-lbl" style="margin-bottom:10px">🙋 You — Bet here</div>
+            <div class="bet-circle ${gm.nextBet > 0 ? 'has-bet' : ''}" onclick="void(0)">
+              <div class="bet-circle-lbl">BET</div>
+              <div class="bet-circle-amt">${gm.nextBet > 0 ? fmt2(gm.nextBet) : '---'}</div>
+              ${gm.nextBet > 0 ? `<div class="bet-circle-sub">× ${(gm.nextBet/gm.betUnit).toFixed(1)}U</div>` : ''}
+            </div>
+
+            <!-- チップトレイ -->
+            <div class="chip-tray" style="margin-top:14px">
+              ${denoms.map(v => gmChipSVG(v)).join('')}
+            </div>
+
+            <!-- クリア / 前回と同じ -->
+            <div style="display:flex;gap:8px;margin-top:10px;width:100%">
+              <button onclick="gmClearBet()"
+                class="btn btn-secondary"
+                style="flex:1;font-size:12px;padding:8px;${gm.nextBet===0?'opacity:.3;pointer-events:none':''}">
+                🗑 クリア
+              </button>
+              <button onclick="gmRepeatBet()"
+                class="btn btn-secondary"
+                style="flex:1;font-size:12px;padding:8px"
+                ${!gm.lastHandBet || gm.lastHandBet > gm.bankroll ? 'disabled style="opacity:.3"' : ''}>
+                ↩ 前回(${gm.lastHandBet ? fmt2(gm.lastHandBet) : '-'})
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- DEALボタン -->
+        <button class="btn ${canDeal?'btn-primary':'btn-secondary'}"
+          style="font-size:17px;font-weight:900;padding:18px;letter-spacing:.05em;
+                 ${!canDeal?'opacity:.35;pointer-events:none':''}"
+          onclick="gmDeal();renderGameScreen()">
+          ▶ DEAL ${canDeal ? fmt2(gm.nextBet) : '— チップを置いてください'}
+        </button>
+        <button class="btn btn-ghost" style="margin-top:6px;font-size:12px;opacity:.45"
+          onclick="gmEndMidHand()">終了して結果を見る</button>
+      </div>`;
+    return;
+  }
+
+  /* ── PLAY PHASE ── */
   const cur   = gm.curHandIdx;
   const pHand = gm.playerHands[cur];
   const pTot  = gmTotal(pHand);
@@ -1577,62 +1669,54 @@ function renderGameHand() {
   const canDouble = pHand.length === 2 && !isBJ && !isBust;
   const canSplit  = pHand.length === 2 && gmIsPair(pHand) && gm.playerHands.length < 3;
 
-  const W = gm.actualResults.filter(r=>r==='win'||r==='bj').length;
-  const L = gm.actualResults.filter(r=>r==='loss').length;
-  const P = gm.actualResults.filter(r=>r==='push').length;
-
   const splitChip = gm.playerHands.length > 1
-    ? `<span style="font-size:11px;background:rgba(139,92,246,.2);color:#a78bfa;padding:2px 8px;border-radius:100px;margin-left:6px">手${cur+1}/${gm.playerHands.length}</span>`
+    ? `<span style="font-size:10px;background:rgba(139,92,246,.2);color:#a78bfa;
+        padding:1px 7px;border-radius:100px">手${cur+1}/${gm.playerHands.length}</span>`
     : '';
 
-  // カード配布アニメーション：ディーラー表 → プレイヤー1枚目 → ディーラー穴 → プレイヤー2枚目
   const isNewDeal = pHand.length === 2 && gm.playerHands.length === 1 && !gm.doubled;
-  const DEAL_GAP   = 300;  // ms between each card
-  const DEAL_DUR   = 350;  // ms animation duration per card
-  const dUpDelay   = isNewDeal ? 0           : -1;
-  const dHoleDelay = isNewDeal ? DEAL_GAP*2  : -1;
+  const DEAL_GAP   = 300;
+  const DEAL_DUR   = 350;
+  const dUpDelay   = isNewDeal ? 0          : -1;
+  const dHoleDelay = isNewDeal ? DEAL_GAP*2 : -1;
   const pCardDelay = (i) => {
     if (!isNewDeal) return i === pHand.length - 1 ? 0 : -1;
     return i === 0 ? DEAL_GAP : DEAL_GAP * 3;
   };
-  // BJ判定は全カードのアニメーション完了後（最後のカード delay + duration）
   const BJ_DELAY = isNewDeal ? DEAL_GAP * 3 + DEAL_DUR + 200 : 700;
 
   $app().innerHTML = `
     <div class="screen">
       <div class="topbar">
-        <div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
-          <span style="font-size:12px;color:var(--muted);font-weight:700">Hand ${gm.handsPlayed+1}</span>
-          <span style="font-size:10px;color:var(--gold);font-weight:700">BET ${fmtMoney(gm.currentHandBet, gm.currency)}</span>
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <span style="font-size:11px;color:var(--muted)">Hand ${gm.handsPlayed+1}</span>
+          <span style="font-size:10px;color:var(--gold);font-weight:700">BET ${fmt2(gm.currentHandBet)}</span>
         </div>
-        <span style="font-size:14px;font-weight:800;color:${gm.bankroll>=gm.currency.initial?'#4ade80':gm.bankroll>=gm.currency.initial*0.8?'var(--gold)':'#f87171'}">
-          ${fmtMoney(gm.bankroll, gm.currency)}
+        <span style="font-size:14px;font-weight:900;
+          color:${gm.bankroll>=cur2.initial?'#4ade80':gm.bankroll>=cur2.initial*0.8?'var(--gold)':'#f87171'}">
+          ${fmt2(gm.bankroll)}
         </span>
         <span style="font-size:12px;font-weight:700">
           <span style="color:#4ade80">${W}W</span><span style="color:#f87171"> ${L}L</span>
         </span>
       </div>
-      <!-- Green felt table -->
+
       <div class="felt-table">
-        <!-- Dealer zone -->
         <div class="dealer-zone">
           <div class="zone-lbl">🎩 Dealer</div>
           <div style="display:flex;gap:6px;justify-content:center">
             ${gmCardHTML(gm.dealerHand[0], false, dUpDelay)}${gmCardHTML(null, true, dHoleDelay)}
           </div>
         </div>
-
         <hr class="felt-divider">
-
-        <!-- Player zone -->
         <div>
-          <div class="zone-lbl">
-            🙋 You${splitChip ? ' &nbsp;'+splitChip : ''}
+          <div class="zone-lbl" style="display:flex;align-items:center;justify-content:center;gap:6px">
+            🙋 You ${splitChip}
           </div>
           <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
             ${pHand.map((c,i)=>gmCardHTML(c, false, pCardDelay(i))).join('')}
           </div>
-          <div style="text-align:center;margin-top:10px">
+          <div style="text-align:center;margin-top:8px">
             <span class="hand-total" style="${isBust?'color:#f87171;border-color:rgba(248,113,113,.4)':isBJ?'color:var(--gold);border-color:rgba(201,162,39,.5)':''}">
               ${isBJ ? '🎉 BLACKJACK' : isBust ? '💀 BUST' : pTot}
             </span>
@@ -1640,25 +1724,25 @@ function renderGameHand() {
         </div>
       </div>
 
-      <!-- Action buttons -->
       <div class="action-grid">
-        <button class="act-btn btn-hit"    onclick="gmAction('Hit')"    ${!canHit   ?'disabled':''}><span class="act-icon">👆</span><span class="act-lbl">HIT / ヒット</span></button>
-        <button class="act-btn btn-stand"  onclick="gmAction('Stand')"  ${!canStand ?'disabled':''}><span class="act-icon">✋</span><span class="act-lbl">STAND / スタンド</span></button>
-        <button class="act-btn btn-double" onclick="gmAction('Double')" ${!canDouble?'disabled':''}><span class="act-icon">✌️</span><span class="act-lbl">DOUBLE / ダブル</span></button>
-        <button class="act-btn btn-split"  onclick="gmAction('Split')"  ${!canSplit ?'disabled':''}><span class="act-icon">↔️</span><span class="act-lbl">SPLIT / スプリット</span></button>
+        <button class="act-btn btn-hit"    onclick="gmAction('Hit')"    ${!canHit   ?'disabled':''}><span class="act-icon">👆</span><span class="act-lbl">HIT</span></button>
+        <button class="act-btn btn-stand"  onclick="gmAction('Stand')"  ${!canStand ?'disabled':''}><span class="act-icon">✋</span><span class="act-lbl">STAND</span></button>
+        <button class="act-btn btn-double" onclick="gmAction('Double')" ${!canDouble?'disabled':''}><span class="act-icon">✌️</span><span class="act-lbl">DOUBLE</span></button>
+        <button class="act-btn btn-split"  onclick="gmAction('Split')"  ${!canSplit ?'disabled':''}><span class="act-icon">↔️</span><span class="act-lbl">SPLIT</span></button>
       </div>
-
       <div style="display:flex;gap:8px;margin-bottom:6px">
         <button class="btn btn-secondary" style="flex:1;font-size:12px;padding:10px;color:var(--gold);border-color:rgba(201,162,39,.3)"
           onclick="renderStrategyTable(true)">📋 戦略表</button>
         <button class="btn btn-ghost" style="flex:1;font-size:12px;padding:10px;opacity:.55"
           onclick="gmEndMidHand()">終了</button>
       </div>
-      <div class="disclaimer">一般的なベーシックストラテジー練習用です。カジノルールにより最適解が変わる場合があります。</div>
+      <div class="disclaimer">ベーシックストラテジー練習用</div>
     </div>`;
 
   if (isBJ && gm.playerHands.length === 1) setTimeout(() => gmNextHand(), BJ_DELAY);
 }
+// 後方互換
+function renderGameHand() { renderGameScreen(); }
 
 // ── Player Action ────────────────────────────────────────────────
 function gmAction(action) {
@@ -1820,7 +1904,9 @@ function renderHandResult(handResults, netActual, perfResult) {
 }
 
 function gmPlayNext() {
-  renderBetSelect();
+  gm.phase   = 'bet';
+  gm.nextBet = 0;
+  renderGameScreen();
 }
 function gmNextOrEnd() { gmPlayNext(); }
 
@@ -1864,97 +1950,21 @@ function gmChipSVG(amount) {
   </svg>`;
 }
 
-function renderBetSelect() {
-  if (!gm.nextBet) gm.nextBet = 0;
-  const cur = gm.currency;
-  const fmt = v => fmtMoney(v, cur);
-  const denoms = gmChipDenoms();
-  const canDeal = gm.nextBet > 0 && gm.nextBet <= gm.bankroll;
-  const W = gm.actualResults.filter(r=>r==='win'||r==='bj').length;
-  const L = gm.actualResults.filter(r=>r==='loss').length;
-
-  $app().innerHTML = `
-    <div class="screen" style="background:var(--bg)">
-      <!-- Topbar -->
-      <div class="topbar">
-        <div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
-          <span style="font-size:11px;color:var(--muted)">Hand ${gm.handsPlayed+1}</span>
-          <span style="font-size:11px;font-weight:700">
-            <span style="color:#4ade80">${W}W</span><span style="color:#f87171"> ${L}L</span>
-          </span>
-        </div>
-        <span style="font-size:15px;font-weight:900;color:var(--gold)">PLACE BET</span>
-        <div style="text-align:right">
-          <div style="font-size:10px;color:var(--muted)">残高</div>
-          <div style="font-size:14px;font-weight:900;color:${gm.bankroll>=cur.initial?'#4ade80':gm.bankroll>=cur.initial*.7?'var(--gold)':'#f87171'}">
-            ${fmt(gm.bankroll)}
-          </div>
-        </div>
-      </div>
-
-      <!-- Green felt bet area -->
-      <div class="felt-table" style="margin-bottom:12px">
-        <div class="bet-area">
-          <div style="font-size:9px;color:rgba(255,255,255,.3);letter-spacing:.15em;text-transform:uppercase;margin-bottom:12px">
-            Tap chips to place your bet
-          </div>
-          <!-- Bet circle -->
-          <div class="bet-circle ${gm.nextBet > 0 ? 'has-bet' : ''}">
-            <div class="bet-circle-lbl">BET</div>
-            <div class="bet-circle-amt">${gm.nextBet > 0 ? fmt(gm.nextBet) : '---'}</div>
-            ${gm.nextBet > 0 ? `<div class="bet-circle-sub">× ${(gm.nextBet/gm.betUnit).toFixed(1)}U</div>` : ''}
-          </div>
-
-          <!-- Chip tray -->
-          <div class="chip-tray">
-            ${denoms.map(v => gmChipSVG(v)).join('')}
-          </div>
-
-          <!-- Clear / Repeat -->
-          <div style="display:flex;gap:8px;margin-top:4px">
-            <button onclick="gmClearBet()"
-              class="btn btn-secondary"
-              style="flex:1;font-size:12px;padding:9px;${gm.nextBet===0?'opacity:.3;cursor:default':''}">
-              🗑 クリア
-            </button>
-            <button onclick="gmRepeatBet()"
-              class="btn btn-secondary"
-              style="flex:1;font-size:12px;padding:9px"
-              ${gm.handsPlayed === 0 ? 'disabled style="opacity:.3"' : ''}>
-              ↩ 前回と同じ
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Deal button -->
-      <button class="btn btn-primary"
-        style="font-size:17px;font-weight:900;padding:18px;letter-spacing:.05em;
-               ${canDeal ? '' : 'opacity:.35;cursor:default'}"
-        onclick="${canDeal ? 'gmDeal();renderGameHand()' : ''}">
-        ▶ DEAL ${canDeal ? '('+fmt(gm.nextBet)+')' : '— チップを選んでください'}
-      </button>
-
-      <button class="btn btn-ghost" style="margin-top:8px;font-size:12px;opacity:.55"
-        onclick="gmEndMidHand()">終了して結果を見る</button>
-    </div>`;
-}
-
 function gmAddChip(v) {
   const newBet = gm.nextBet + v;
   if (newBet > gm.bankroll) return;
   gm.nextBet = newBet;
   gm.lastChip = v;
-  renderBetSelect();
+  renderGameScreen();
 }
 function gmClearBet() {
   gm.nextBet = 0;
-  renderBetSelect();
+  renderGameScreen();
 }
 function gmRepeatBet() {
   if (gm.lastHandBet && gm.lastHandBet <= gm.bankroll) {
     gm.nextBet = gm.lastHandBet;
-    renderBetSelect();
+    renderGameScreen();
   }
 }
 
